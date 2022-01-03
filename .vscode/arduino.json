@@ -1,0 +1,6 @@
+{
+    "sketch": "sketch_apr11a.ino",
+    "configuration": "usbstack=arduino,debug=off",
+    "board": "Seeeduino:samd:seeed_XIAO_m0",
+    "port": "COM7"
+}
