@@ -1,21 +1,28 @@
 #include <AS5600.h>
 #include <Wire.h>
 #include <AbsMouse.h>
+#include "Custom_AS5600.h"
 
-#define FLASH_DEBUG 0
+#define FLASH_DEBUG 1
 #include <FlashStorage_SAMD.h>
 
 
 #define DEBUG_LOGGING 1
 
 #ifdef DEBUG_LOGGING
-  #define debugPrint(...) DEBUGLOGGING Serial.print(...)
+  #define debugPrint(...) Serial.print(__VA_ARGS__)
 
 #else
   #define debugPrint(...)
 #endif
 
-FlashStorage(flash_storage, StorageVars_t);
+typedef struct
+{
+  int x_size;
+  int y_size;
+  int x_origin;
+  int y_origin;
+} ScreenArea_t;
 
 typedef struct
 {
@@ -42,10 +49,14 @@ typedef struct
   int B_90;
   uint64_t first_write_timestamp;
   uint64_t last_write_timestamp;
-  TabletArea_t tabletArea;
+  TabletArea_t tablet_area;
+  ScreenArea_t screen_size;
 } StorageVars_t;
 
 StorageVars_t storage_vars;
+
+const int WRITTEN_SIGNATURE = 0xBEEFDEED;
+uint16_t storedAddress = 0;
 
 int POTA_PIN = 1;
 int POTB_PIN = 2;
@@ -123,6 +134,13 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(ACTIVATE_PIN), toggleMouseActivate, FALLING);
   Serial.begin(115200);
 
+  loadFlashStorage(&storage_vars);
+
+  while(1){
+    debugPrint("HELLO" + String(storage_vars.A_0) + "\n");
+    delay(1000);
+  }
+
   Wire.begin();
   Wire.setClock(800000UL);
 
@@ -148,6 +166,8 @@ void setup()
   prevPrevValueB = readTwoBytesFast();
   prevValueB = prevPrevValueB;
   valueB = prevValueB;
+
+  
 }
 
 void loop()
@@ -287,13 +307,6 @@ float expFilter(float current, float prev, float weight)
   return prev * (1 - weight) + current * (weight);
 }
 
-float medianFilter(int A1, int A2, int A3)
-{
-  int sampleList[] = {A1, A2, A3};
-  qsort(sampleList, 3, sizeof(sampleList[0]), sort_desc);
-  return sampleList[1];
-}
-
 int median_of_3(int a, int b, int c)
 {
   int the_max = max(max(a, b), c);
@@ -319,45 +332,6 @@ int sort_desc(const void *cmp1, const void *cmp2)
   //return b - a;
 }
 /*
-word getRawAngle2()
-{
-  int _raw_ang_hi = 0x0c;
-  int _raw_ang_lo = 0x0d;
-  return readTwoBytes2(_raw_ang_hi, _raw_ang_lo);
-}
-
-word readTwoBytes2(int in_adr_hi, int in_adr_lo)
-{
-  int _ams5600_Address = 0x36;
-  
-  word retVal = -1;
-
-  //Read Low Byte
-  myWire.beginTransmission(_ams5600_Address);
-  myWire.write(in_adr_lo);
-  myWire.endTransmission();
-  myWire.requestFrom(_ams5600_Address, 1);
-  while (myWire.available() == 0)
-    ;
-  int low = myWire.read();
-
-  //Read High Byte
-  myWire.beginTransmission(_ams5600_Address);
-  myWire.write(in_adr_hi);
-  myWire.endTransmission();
-  myWire.requestFrom(_ams5600_Address, 1);
-
-  while (myWire.available() == 0)
-    ;
-
-  word high = myWire.read();
-
-  high = high << 8;
-  retVal = high | low;
-
-  return retVal;
-}*/
-
 void as5600Setup()
 {
   //        0123456789ABCDEF
@@ -368,7 +342,7 @@ void as5600Setup()
   Wire.write(0x0C);
   uint8_t err = Wire.endTransmission();
   if (err == 0) {
-    Serial.println("AS5600 ERROR");
+    Serial.println(F("AS5600 ERROR"));
   }
 }
 
@@ -387,10 +361,10 @@ void setConf(word _conf)
   Description: gets raw value of magnet position.
   start, end, and max angle settings do not apply
 *******************************************************/
-word getRawAngleFast()
+/*word getRawAngleFast()
 {
   return readTwoBytesFast();
-}
+}*/
 
 /*******************************************************
   Method: writeOneByte
@@ -398,14 +372,14 @@ word getRawAngleFast()
   Out: none
   Description: writes one byte to a i2c register
 *******************************************************/
-uint8_t writeOneByte(int adr_in, int dat_in)
+/*uint8_t writeOneByte(int adr_in, int dat_in)
 {
   Wire.beginTransmission(0x36);
   Wire.write(adr_in);
   Wire.write(dat_in);
   uint8_t err = Wire.endTransmission();
   return err;
-}
+}*/
 
 /*******************************************************
   Method: readTwoBytes
@@ -413,7 +387,7 @@ uint8_t writeOneByte(int adr_in, int dat_in)
   Out: data read from i2c as a word
   Description: reads two bytes register from i2c
 *******************************************************/
-word readTwoBytesFast()
+/*word readTwoBytesFast()
 {
   word retVal = -1;
 
@@ -434,13 +408,62 @@ word readTwoBytesFast()
   retVal = high | low;
 
   return retVal;
-}
+}*/
 
 bool loadFlashStorage(StorageVars_t *storage_vars)
 {
-  if (!EEPROM.isValid())
+
+  int signature;
+  EEPROM.get(storedAddress, signature);
+  if (signature == WRITTEN_SIGNATURE) 
   {
-    // Flash has not been written to yet.
+    // Flash has already been written
+    // Read from flash and load to storage_vars
+
+    StorageVars_t retrievedStorageVars;
+    EEPROM.get(storedAddress + sizeof(signature), storage_vars);
+    storage_vars->A_0 = 1;
+    //storage_vars = &retrievedStorageVars;
   }
-  storage_vars->A_0;
+  else
+  {
+    // Flash has not been written yet
+
+    // Set Default Tablet Area
+    TabletArea_t tabletArea;
+    tabletArea.x_origin = 40;
+    tabletArea.x_size = 67.7;
+    tabletArea.y_origin = 0;
+    tabletArea.y_size = 0;
+
+    ScreenArea_t screenArea;
+    screenArea.x_size = 1920;
+    screenArea.y_size = 1080;
+    screenArea.x_origin = 0;
+    screenArea.y_origin = 0;
+
+    // Set Default Sensor Home
+    storage_vars->A_0 = 123;
+    storage_vars->A_90 = (int)(4096/4);
+    storage_vars->B_0 = 0;
+    storage_vars->B_90 = (int)(4096/4);
+    storage_vars->first_write_timestamp = 0;
+    storage_vars->last_write_timestamp = 0;
+    storage_vars->tablet_area = tabletArea;
+    storage_vars->screen_size = screenArea;
+
+    // Write to Flash
+    EEPROM.put(storedAddress, WRITTEN_SIGNATURE);
+    EEPROM.put(storedAddress + sizeof(signature), storage_vars);
+
+    if (!EEPROM.getCommitASAP())
+    {
+      Serial.println("CommitASAP not set. Need commit()");
+      EEPROM.commit();
+    }
+
+    return true;
+  }
+
+  return false;
 }

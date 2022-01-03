@@ -69,6 +69,7 @@
                 "F_CPU=48000000L",
                 "ARDUINO=10805",
                 "ARDUINO_SEEED_XIAO_M0",
+                "BOARD_NAME=SEEED_XIAO_M0",
                 "ARDUINO_ARCH_SAMD",
                 "ARDUINO_SAMD_ZERO",
                 "__SAMD21__",
