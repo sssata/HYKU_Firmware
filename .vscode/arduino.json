@@ -1,6 +1,6 @@
 {
-    "sketch": "sketch_apr11a.ino",
+    "sketch": "TBL2_firmware.ino",
     "configuration": "usbstack=arduino,debug=off",
     "board": "Seeeduino:samd:seeed_XIAO_m0",
-    "port": "COM13"
+    "port": "COM15"
 }
