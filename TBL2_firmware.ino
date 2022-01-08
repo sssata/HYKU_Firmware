@@ -4,7 +4,7 @@
 #include <AbsMouse.h>
 #include "Custom_AS5600.h"
 
-#define FLASH_DEBUG 1
+#define FLASH_DEBUG 0
 #include <FlashStorage_SAMD.h>
 
 //#define DEBUG_LOGGING
@@ -15,86 +15,100 @@
 #define debugPrint(...)
 #endif
 
-class ActivateButton{
-    public:
-        unsigned long last_pressed_time_ms;
-        unsigned long last_released_time_ms;
-        const unsigned long long_press_threshold_ms = 1000;
-        const unsigned long debounce_threshold_ms = 10;
-        unsigned long last_toggle_time_ms;
-        bool curr_state_unfiltered;
-        bool prev_state_unfiltered;
-        bool curr_state;
-        bool prev_state;
-        uint32_t pin;
-        bool mouse_move_activated;
-        bool mouse_pressed;
-        bool prev_mouse_pressed;
-        bool long_press_flag;
+#define VERSION 001
 
-        ActivateButton(uint32_t _pin){
-            last_pressed_time_ms = 0UL;
-            last_released_time_ms = 0UL;
-            curr_state = false;
-            prev_state = false;
-            curr_state_unfiltered = false;
-            prev_state_unfiltered = false;
-            pin = _pin;
-            mouse_move_activated = true;
-            mouse_pressed = false;
-            prev_mouse_pressed = false;
-            long_press_flag = false;
+class ActivateButton
+{
+public:
+    unsigned long last_pressed_time_ms;
+    unsigned long last_released_time_ms;
+    const unsigned long long_press_threshold_ms = 1000;
+    const unsigned long debounce_threshold_ms = 10;
+    unsigned long last_toggle_time_ms;
+    bool curr_state_unfiltered;
+    bool prev_state_unfiltered;
+    bool curr_state;
+    bool prev_state;
+    uint32_t pin;
+    bool mouse_move_activated;
+    bool mouse_pressed;
+    bool prev_mouse_pressed;
+    bool long_press_flag;
+
+    ActivateButton(uint32_t _pin)
+    {
+        last_pressed_time_ms = 0UL;
+        last_released_time_ms = 0UL;
+        curr_state = false;
+        prev_state = false;
+        curr_state_unfiltered = false;
+        prev_state_unfiltered = false;
+        pin = _pin;
+        mouse_move_activated = true;
+        mouse_pressed = false;
+        prev_mouse_pressed = false;
+        long_press_flag = false;
+    }
+
+    void setup()
+    {
+        pinMode(pin, INPUT_PULLUP);
+        curr_state_unfiltered = digitalRead(pin);
+        prev_state_unfiltered = curr_state_unfiltered;
+        curr_state = curr_state_unfiltered;
+        prev_state = curr_state_unfiltered;
+    }
+
+    void mainLoopService()
+    {
+        prev_state_unfiltered = curr_state_unfiltered;
+        curr_state_unfiltered = !digitalRead(pin);
+        unsigned long current_time_ms = millis();
+
+        if (prev_state_unfiltered != curr_state_unfiltered)
+        {
+            last_toggle_time_ms = current_time_ms;
         }
 
-        void setup(){
-            pinMode(pin, INPUT_PULLUP);
-            curr_state_unfiltered = digitalRead(pin);
-            prev_state_unfiltered = curr_state_unfiltered;
+        if (current_time_ms - last_toggle_time_ms > debounce_threshold_ms)
+        {
+            // Debounce filter passed
+            prev_state = curr_state;
             curr_state = curr_state_unfiltered;
-            prev_state = curr_state_unfiltered;
-        }
 
-        void mainLoopService(){
-            prev_state_unfiltered = curr_state_unfiltered;
-            curr_state_unfiltered = !digitalRead(pin);
-            unsigned long current_time_ms = millis();
-
-            if (prev_state_unfiltered != curr_state_unfiltered){
-                last_toggle_time_ms = current_time_ms;
+            // Pressed transition
+            if (curr_state && !prev_state)
+            {
+                long_press_flag = false;
+                last_pressed_time_ms = current_time_ms;
             }
 
-            if (current_time_ms - last_toggle_time_ms > debounce_threshold_ms){
-                // Debounce filter passed
-                prev_state = curr_state;
-                curr_state = curr_state_unfiltered;
+            // Released transition
+            if (!curr_state && prev_state)
+            {
+                long_press_flag = false;
+                last_released_time_ms = current_time_ms;
+            }
 
-                // Pressed transition
-                if (curr_state && !prev_state){
-                    long_press_flag = false;
-                    last_pressed_time_ms = current_time_ms;
-                }
+            prev_mouse_pressed = mouse_pressed;
+            if (!long_press_flag && mouse_move_activated)
+            {
+                mouse_pressed = curr_state;
+            }
+            else
+            {
+                mouse_pressed = false;
+            }
 
-                // Released transition
-                if (!curr_state && prev_state){
-                    long_press_flag = false;
-                    last_released_time_ms = current_time_ms;
-                }
+            // Check for long press
+            if (curr_state && !long_press_flag && current_time_ms - last_pressed_time_ms > long_press_threshold_ms)
+            {
+                long_press_flag = true;
 
-                prev_mouse_pressed = mouse_pressed;
-                if (!long_press_flag && mouse_move_activated){
-                    mouse_pressed = curr_state;
-                } else {
-                    mouse_pressed = false;
-                }
-
-                // Check for long press
-                if (curr_state && !long_press_flag && current_time_ms - last_pressed_time_ms > long_press_threshold_ms){
-                    long_press_flag = true;
-
-                    mouse_move_activated = !mouse_move_activated;
-                }
+                mouse_move_activated = !mouse_move_activated;
             }
         }
+    }
 };
 
 typedef struct
@@ -128,10 +142,10 @@ typedef struct
    *   (x_origin, -> +-----------+
    *    y_origin)        x_size
    */
-    int x_origin;
-    int y_origin;
-    int x_size;
-    int y_size;
+    float x_origin;
+    float y_origin;
+    float x_size;
+    float y_size;
 } TabletArea_t;
 
 typedef struct
@@ -161,7 +175,6 @@ StorageVars_t storage_vars;
 
 const int WRITTEN_SIGNATURE = 0xBEEFDEED;
 uint16_t storedAddress = 0;
-
 
 const byte numChars = 32;
 char receivedChars[numChars];
@@ -248,12 +261,12 @@ void setup()
 
     loadFlashStorage(&storage_vars);
 
-    for(int i = 0; i<5; i++)
+    for (int i = 0; i < 5; i++)
     {
         debugPrint("HELLO" + String(storage_vars.A_0) + "\n");
         delay(1000);
     }
-    
+
     Wire.begin();
     Wire.setClock(800000UL);
     Wire.setTimeout(100);
@@ -261,8 +274,7 @@ void setup()
     analogReadResolution(12);
     analogReference(AR_DEFAULT);
 
-    AbsMouse.init(screenWidth, screenHeight);
-
+    AbsMouse.init(storage_vars.screen_size.x_max_size, storage_vars.screen_size.y_max_size, false);
 
     // Prepare Sensor A (shoulder sensor)
     digitalWrite(SELECT_PIN, HIGH);
@@ -330,7 +342,7 @@ void loop()
 
         //Serial.println(valueA_median);
 
-        debugPrint(String(valueA,DEC) + "," + String(valueB,DEC) + "\n");
+        debugPrint(String(valueA, DEC) + "," + String(valueB, DEC) + "\n");
 
         // Sensor ADC counts to angle in degrees
         angleA = mapf(valueA, storage_vars.A_0, storage_vars.A_90, 0.0, 90.0);
@@ -347,42 +359,52 @@ void loop()
         x_rawPrev = x_raw;
         y_rawPrev = y_raw;
 
-        float x_mapped = constrain(mapf(x_raw, x_origin, x_max, 0.0, screenWidth), 0, screenWidth);
-        float y_mapped = constrain(mapf(y_raw, y_origin, y_max, 0.0, screenHeight), 0, screenHeight);
-
-        //Serial.print(" A raw ADC: ");Serial.print(valueA);
-        //Serial.print(" B raw ADC: ");Serial.print(valueB);
-
-        //Serial.print(valueA); Serial.print(" "); Serial.println(valueB);
+        float x_mapped = constrain(
+            mapf(
+                x_raw,
+                storage_vars.tablet_area.x_origin,
+                storage_vars.tablet_area.x_origin + storage_vars.tablet_area.x_size,
+                storage_vars.screen_size.x_origin,
+                storage_vars.screen_size.x_origin + storage_vars.screen_size.x_size),
+            storage_vars.screen_size.x_origin,
+            storage_vars.screen_size.x_origin + storage_vars.screen_size.x_size);
+        float y_mapped = constrain(
+            mapf(
+                y_raw,
+                storage_vars.tablet_area.y_origin + storage_vars.tablet_area.y_size, // flipped because screen y axis is inverted
+                storage_vars.tablet_area.y_origin, 
+                storage_vars.screen_size.y_origin,
+                storage_vars.screen_size.y_origin + storage_vars.screen_size.y_size),
+            storage_vars.screen_size.y_origin,
+            storage_vars.screen_size.y_origin + storage_vars.screen_size.y_size);
 
         debugPrint(" A angle: " + String(angleA, DEC) + " B angle: " + String(angleB, DEC) + "\n");
 
-        //Serial.print(" x: ");Serial.print(x_raw);
-        //Serial.print(" y: ");Serial.print(y_raw);
-
-        //Serial.print(" x mapped: ");Serial.println(x_mapped);
-        //Serial.print(" y mapped: ");Serial.println(y_mapped);
-
-        //Serial.println("");
-
         activateButton.mainLoopService();
-        
-        if (activateButton.mouse_pressed && !activateButton.prev_mouse_pressed){
+
+        if (activateButton.mouse_pressed && !activateButton.prev_mouse_pressed)
+        {
             debugPrint("mouse pressed\n");
             AbsMouse.press();
         }
-        if(!activateButton.mouse_pressed && activateButton.prev_mouse_pressed){
+        if (!activateButton.mouse_pressed && activateButton.prev_mouse_pressed)
+        {
             debugPrint("mouse released\n");
             AbsMouse.release();
+            AbsMouse.report();
         }
 
         if (activateButton.mouse_move_activated)
         {
             //debugPrint("mouse active\n");
             AbsMouse.move(round(x_mapped), round(y_mapped));
-        } else{
+            AbsMouse.report();
+        }
+        else
+        {
             //debugPrint("mouse not active\n");
         }
+
         ledService();
 
         recvWithStartEndMarkers();
@@ -419,84 +441,6 @@ int sort_desc(const void *cmp1, const void *cmp2)
     // A simpler, probably faster way:
     //return b - a;
 }
-/*
-void as5600Setup()
-{
-  //        0123456789ABCDEF
-  // 8,9 are filter settings
-  setConfRegister(0b0000000010000000);
-
-  Wire.beginTransmission(0x36);
-  Wire.write(0x0C);
-  uint8_t err = Wire.endTransmission();
-  if (err == 0) {
-    Serial.println(F("AS5600 ERROR"));
-  }
-}
-
-void setConfRegister(word _conf)
-{
-  uint8_t err = writeOneByte(0x07, highByte(_conf));
-  delay(2);
-  writeOneByte(0x08, lowByte(_conf));
-  delay(2);
-}
-
-/*******************************************************
-  Method: getRawAngle
-  In: none
-  Out: value of raw angle register
-  Description: gets raw value of magnet position.
-  start, end, and max angle settings do not apply
-*******************************************************/
-/*word getRawAngleFast()
-{
-  return readTwoBytesFast();
-}*/
-
-/*******************************************************
-  Method: writeOneByte
-  In: address and data to write
-  Out: none
-  Description: writes one byte to a i2c register
-*******************************************************/
-/*uint8_t writeOneByte(int adr_in, int dat_in)
-{
-  Wire.beginTransmission(0x36);
-  Wire.write(adr_in);
-  Wire.write(dat_in);
-  uint8_t err = Wire.endTransmission();
-  return err;
-}*/
-
-/*******************************************************
-  Method: readTwoBytes
-  In: two registers to read
-  Out: data read from i2c as a word
-  Description: reads two bytes register from i2c
-*******************************************************/
-/*word readTwoBytesFast()
-{
-  word retVal = -1;
-
-  // Automatic pointer reload for rawAngle
-  //register, don't need to write reg addr
-  //Wire.beginTransmission(0x36);
-  //Wire.write(0x0c);
-  //Wire.endTransmission(false);
-
-  Wire.requestFrom(0x36, 2);
-  while (Wire.available() < 2)
-    ;
-
-  word high = Wire.read();
-  int low = Wire.read();
-
-  high = high << 8;
-  retVal = high | low;
-
-  return retVal;
-}*/
 
 void ledService()
 {
@@ -507,7 +451,8 @@ void ledService()
     unsigned long current_time = millis();
 
     //Mouse Button Pressed
-    if (activateButton.mouse_pressed){
+    if (activateButton.mouse_pressed)
+    {
         analogWrite(R_PIN, 1000);
         analogWrite(G_PIN, 100);
         analogWrite(B_PIN, 100);
@@ -515,7 +460,8 @@ void ledService()
     }
 
     // Active
-    if (activateButton.mouse_move_activated){
+    if (activateButton.mouse_move_activated)
+    {
         analogWrite(R_PIN, sin(millis() * t_const) * a_const / 2 + a_const / 2);
         analogWrite(G_PIN, sin(millis() * t_const + (2 * PI / 3)) * a_const / 2 + a_const / 2);
         analogWrite(B_PIN, sin(millis() * t_const + (4 * PI / 3)) * a_const / 2 + a_const / 2);
@@ -530,7 +476,6 @@ void ledService()
     analogWrite(G_PIN, sin(millis() * t_const + (3 * PI / 3)) * a_const / 2 + a_const / 1.8);
     a_const = 300;
     analogWrite(B_PIN, sin(millis() * t_const + (4 * PI / 3)) * a_const / 2 + a_const / 1.8);
-
 }
 
 bool loadFlashStorage(StorageVars_t *storage_vars)
@@ -567,11 +512,11 @@ bool loadFlashStorage(StorageVars_t *storage_vars)
         screenArea.y_max_size = 1080;
 
         // Set Default Sensor Home
-        storage_vars->A_0 = 3954;
+        storage_vars->A_0 = 0;
         storage_vars->A_90 = (int)(4096 / 4);
         storage_vars->B_0 = 0;
-        storage_vars->B_90 = 3872 - (4096 / 4);
-        storage_vars->B_180 = 3872;
+        storage_vars->B_90 = 0 - (4096 / 4);
+        storage_vars->B_180 = 0;
         storage_vars->first_write_timestamp = 0;
         storage_vars->last_write_timestamp = 0;
         storage_vars->tablet_area = tabletArea;
@@ -602,26 +547,57 @@ bool saveFlashStorage(StorageVars_t storage_vars)
     return false;
 }
 
+bool printStorageVars(StorageVars_t *storage_vars)
+{
 
-void recvWithStartEndMarkers() {
+    Serial.println("A_0: " + String(storage_vars->A_0, DEC));
+    Serial.println("A_90: " + String(storage_vars->A_90, DEC));
+    Serial.println("B_0: " + String(storage_vars->B_0, DEC));
+    Serial.println("B_90: " + String(storage_vars->B_90, DEC));
+    Serial.println("B_180: " + String(storage_vars->B_90, DEC));
+    Serial.println("first_write_timestamp: " + String(int(storage_vars->first_write_timestamp), DEC));
+    Serial.println("last_write_timestamp: " + String(int(storage_vars->last_write_timestamp), DEC));
+    Serial.println("tablet_area: ");
+    Serial.println("    x_origin: " + String(storage_vars->tablet_area.x_origin));
+    Serial.println("    y_origin: " + String(storage_vars->tablet_area.y_origin));
+    Serial.println("    x_size: " + String(storage_vars->tablet_area.x_size));
+    Serial.println("    y_size: " + String(storage_vars->tablet_area.y_size));
+    Serial.println("screen_size: ");
+    Serial.println("    x_max_size: " + String(storage_vars->screen_size.x_max_size));
+    Serial.println("    y_max_size: " + String(storage_vars->screen_size.y_max_size));
+    Serial.println("    x_origin: " + String(storage_vars->screen_size.x_origin));
+    Serial.println("    y_origin: " + String(storage_vars->screen_size.y_origin));
+    Serial.println("    x_size: " + String(storage_vars->screen_size.x_size));
+    Serial.println("    y_size: " + String(storage_vars->screen_size.y_size));
+}
+
+// Credit to Robin2 for recvWithStartEndMarkers and showNewData functions
+// https://forum.arduino.cc/t/serial-input-basics-updated/382007
+void recvWithStartEndMarkers()
+{
     static boolean recvInProgress = false;
     static byte ndx = 0;
     char startMarker = '<';
     char endMarker = '>';
     char rc;
- 
-    while (Serial.available() > 0 && newData == false) {
+
+    while (Serial.available() > 0 && newData == false)
+    {
         rc = Serial.read();
 
-        if (recvInProgress == true) {
-            if (rc != endMarker) {
+        if (recvInProgress == true)
+        {
+            if (rc != endMarker)
+            {
                 receivedChars[ndx] = rc;
                 ndx++;
-                if (ndx >= numChars) {
+                if (ndx >= numChars)
+                {
                     ndx = numChars - 1;
                 }
             }
-            else {
+            else
+            {
                 receivedChars[ndx] = '\0'; // terminate the string
                 recvInProgress = false;
                 ndx = 0;
@@ -629,36 +605,66 @@ void recvWithStartEndMarkers() {
             }
         }
 
-        else if (rc == startMarker) {
+        else if (rc == startMarker)
+        {
             recvInProgress = true;
         }
     }
 }
 
-void showNewData() {
-    if (newData == true) {
+void showNewData()
+{
+    if (newData == true)
+    {
         Serial.println(receivedChars);
-        if (strlen(receivedChars) == 1){
+        if (strlen(receivedChars) >= 1)
+        {
             switch (receivedChars[0])
             {
+            case 'V':
+                Serial.println(VERSION);
+                break;
+
             case 'A':
-                Serial.println("A: " + String(valueA,DEC));
+                Serial.println("A: " + String(valueA, DEC));
                 break;
+
             case 'B':
-                Serial.println("B: " + String(valueB,DEC));
+                Serial.println("B: " + String(valueB, DEC));
                 break;
+
             case 'C':
-                Serial.println("A_0: " + String(valueA,DEC) + ", B_0: " + String(valueB,DEC) + "\n");
                 storage_vars.A_0 = valueA;
                 storage_vars.A_90 = (storage_vars.A_0 - 1024) % 4096;
                 storage_vars.B_0 = valueB;
                 storage_vars.B_90 = (storage_vars.B_0 + 1024) % 4096;
                 saveFlashStorage(storage_vars);
+                printStorageVars(&storage_vars);
+                break;
+            case 'D':
+                char *startPointer; // this is used by strtok() as an index
+                char *endPointer;
+
+                startPointer = receivedChars + 1;
+                storage_vars.tablet_area.x_origin = strtod(startPointer, &endPointer);
+
+                startPointer = endPointer;
+                storage_vars.tablet_area.y_origin = strtod(startPointer, &endPointer);
+
+                startPointer = endPointer;
+                storage_vars.tablet_area.x_size = strtod(startPointer, &endPointer);
+
+                startPointer = endPointer;
+                storage_vars.tablet_area.y_size = strtod(startPointer, &endPointer);
+
+                printStorageVars(&storage_vars);
+                break;
+
             default:
                 break;
             }
         }
         if (receivedChars)
-        newData = false;
+            newData = false;
     }
 }
