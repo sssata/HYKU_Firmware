@@ -7,7 +7,7 @@
 #define FLASH_DEBUG 0
 #include <FlashStorage_SAMD.h>
 
-//#define DEBUG_LOGGING
+#define DEBUG_LOGGING
 
 #ifdef DEBUG_LOGGING
 #define debugPrint(...) Serial.print(__VA_ARGS__)
@@ -15,7 +15,7 @@
 #define debugPrint(...)
 #endif
 
-#define VERSION 001
+#define VERSION 1
 
 class ActivateButton
 {
@@ -261,12 +261,6 @@ void setup()
 
     loadFlashStorage(&storage_vars);
 
-    for (int i = 0; i < 5; i++)
-    {
-        debugPrint("HELLO" + String(storage_vars.A_0) + "\n");
-        delay(1000);
-    }
-
     Wire.begin();
     Wire.setClock(800000UL);
     Wire.setTimeout(100);
@@ -368,6 +362,7 @@ void loop()
                 storage_vars.screen_size.x_origin + storage_vars.screen_size.x_size),
             storage_vars.screen_size.x_origin,
             storage_vars.screen_size.x_origin + storage_vars.screen_size.x_size);
+
         float y_mapped = constrain(
             mapf(
                 y_raw,
@@ -500,8 +495,8 @@ bool loadFlashStorage(StorageVars_t *storage_vars)
         TabletArea_t tabletArea;
         tabletArea.x_origin = 40;
         tabletArea.x_size = 67.7;
-        tabletArea.y_origin = 0;
-        tabletArea.y_size = 0;
+        tabletArea.y_origin = -20;
+        tabletArea.y_size = 40;
 
         ScreenArea_t screenArea;
         screenArea.x_size = 1920;
@@ -619,6 +614,9 @@ void showNewData()
         Serial.println(receivedChars);
         if (strlen(receivedChars) >= 1)
         {
+
+            char *startPointer;
+            char *endPointer;
             switch (receivedChars[0])
             {
             case 'V':
@@ -641,9 +639,8 @@ void showNewData()
                 saveFlashStorage(storage_vars);
                 printStorageVars(&storage_vars);
                 break;
+
             case 'D':
-                char *startPointer; // this is used by strtok() as an index
-                char *endPointer;
 
                 startPointer = receivedChars + 1;
                 storage_vars.tablet_area.x_origin = strtod(startPointer, &endPointer);
@@ -657,9 +654,34 @@ void showNewData()
                 startPointer = endPointer;
                 storage_vars.tablet_area.y_size = strtod(startPointer, &endPointer);
 
+                saveFlashStorage(storage_vars);
                 printStorageVars(&storage_vars);
                 break;
 
+            case 'E':
+
+                startPointer = receivedChars + 1;
+
+                startPointer = endPointer;
+                storage_vars.screen_size.x_max_size = strtod(startPointer, &endPointer);
+
+                startPointer = endPointer;
+                storage_vars.screen_size.y_max_size = strtod(startPointer, &endPointer);
+
+                storage_vars.screen_size.x_origin = strtod(startPointer, &endPointer);
+
+                startPointer = endPointer;
+                storage_vars.screen_size.y_origin = strtod(startPointer, &endPointer);
+
+                startPointer = endPointer;
+                storage_vars.screen_size.x_size = strtod(startPointer, &endPointer);
+
+                startPointer = endPointer;
+                storage_vars.screen_size.y_size = strtod(startPointer, &endPointer);
+
+                saveFlashStorage(storage_vars);
+                printStorageVars(&storage_vars);
+                break;
             default:
                 break;
             }
