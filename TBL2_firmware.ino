@@ -661,23 +661,22 @@ void showNewData()
             case 'E':
 
                 startPointer = receivedChars + 1;
+                storage_vars.screen_size.x_max_size = strtol(startPointer, &endPointer, 10);
 
                 startPointer = endPointer;
-                storage_vars.screen_size.x_max_size = strtod(startPointer, &endPointer);
+                storage_vars.screen_size.y_max_size = strtol(startPointer, &endPointer, 10);
 
                 startPointer = endPointer;
-                storage_vars.screen_size.y_max_size = strtod(startPointer, &endPointer);
-
-                storage_vars.screen_size.x_origin = strtod(startPointer, &endPointer);
+                storage_vars.screen_size.x_origin = strtol(startPointer, &endPointer, 10);
 
                 startPointer = endPointer;
-                storage_vars.screen_size.y_origin = strtod(startPointer, &endPointer);
+                storage_vars.screen_size.y_origin = strtol(startPointer, &endPointer, 10);
 
                 startPointer = endPointer;
-                storage_vars.screen_size.x_size = strtod(startPointer, &endPointer);
+                storage_vars.screen_size.x_size = strtol(startPointer, &endPointer, 10);
 
                 startPointer = endPointer;
-                storage_vars.screen_size.y_size = strtod(startPointer, &endPointer);
+                storage_vars.screen_size.y_size = strtol(startPointer, &endPointer, 10);
 
                 saveFlashStorage(storage_vars);
                 printStorageVars(&storage_vars);

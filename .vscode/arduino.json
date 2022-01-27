@@ -2,5 +2,6 @@
     "sketch": "TBL2_firmware.ino",
     "configuration": "usbstack=arduino,debug=off",
     "board": "Seeeduino:samd:seeed_XIAO_m0",
-    "port": "COM15"
+    "port": "COM4",
+    "output": "/ArduinoOutput"
 }
