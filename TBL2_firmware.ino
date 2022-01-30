@@ -7,7 +7,7 @@
 #define FLASH_DEBUG 0
 #include <FlashStorage_SAMD.h>
 
-#define DEBUG_LOGGING
+//#define DEBUG_LOGGING
 
 #ifdef DEBUG_LOGGING
 #define debugPrint(...) Serial.print(__VA_ARGS__)
@@ -15,7 +15,7 @@
 #define debugPrint(...)
 #endif
 
-#define VERSION 1
+#define VERSION 2
 
 class ActivateButton
 {
@@ -150,11 +150,18 @@ typedef struct
 
 typedef struct
 {
+    float exp_filter_time_constant_ms;
+    int exp_filter_activate;
+} FilterParams_t;
+
+typedef struct
+{
     int A_0;
     int A_90;
     int B_0;
     int B_90;
     int B_180;
+    FilterParams_t filter_params;
     uint64_t first_write_timestamp;
     uint64_t last_write_timestamp;
     TabletArea_t tablet_area;
@@ -225,10 +232,13 @@ int A_90 = 3954 - (4096 / 4);
 int B_90 = 3872 - (4096 / 4);
 int B_180 = 3872;
 
-int pollRate_hz = 1000;
+int pollRate_hz = 500;
 int period_uS = (1000 * 1000) / pollRate_hz;
 unsigned long lastRunTime_uS = 0;
 unsigned long currentTime_uS = 0;
+
+float curr_filter_time_uS;
+float last_filter_time_uS;
 
 int screenWidth = 1920;
 int screenHeight = 1080;
@@ -239,12 +249,6 @@ float x_max = x_origin + x_width;
 float y_height = screenHeight * 1.0 / screenWidth * x_width;
 float y_origin = y_height / 2;
 float y_max = y_origin - y_height;
-
-int ADCSamples = 9;
-
-unsigned long lastButtonTime = 0;
-
-volatile int activateMouse = 1;
 
 ActivateButton activateButton = ActivateButton(ACTIVATE_PIN);
 
@@ -301,6 +305,10 @@ void setup()
     prevPrevValueB = as5600Sensor.getRawAngleFast();
     prevValueB = prevPrevValueB;
     valueB = prevValueB;
+
+    // Reset filter
+    curr_filter_time_uS = micros();
+    last_filter_time_uS = micros();
 }
 
 void loop()
@@ -326,13 +334,13 @@ void loop()
         digitalWrite(SELECT_PIN, HIGH);
         delayMicroseconds(10);
         valueA = as5600Sensor.getRawAngleFast();
-        int valueA_median = median_of_3(valueA, prevPrevValueB, prevValueA);
+        //int valueA_median = median_of_3(valueA, prevPrevValueB, prevValueA);
 
         // READ ANGLE B
         digitalWrite(SELECT_PIN, LOW);
         delayMicroseconds(10);
         valueB = as5600Sensor.getRawAngleFast();
-        int valueB_median = median_of_3(valueB, prevPrevValueB, prevValueB);
+        //int valueB_median = median_of_3(valueB, prevPrevValueB, prevValueB);
 
         //Serial.println(valueA_median);
 
@@ -347,8 +355,13 @@ void loop()
         x_raw = l1 * cos(angleA * PI / 180) + l2 * cos(angleB2 * PI / 180);
         y_raw = l1 * sin(angleA * PI / 180) + l2 * sin(angleB2 * PI / 180);
 
-        x_raw = expFilter(x_raw, x_rawPrev, expFilterWeightXY);
-        y_raw = expFilter(y_raw, y_rawPrev, expFilterWeightXY);
+        curr_filter_time_uS = micros();
+        if (storage_vars.filter_params.exp_filter_activate != 0){
+            x_raw = expFilter(x_raw, x_rawPrev, storage_vars.filter_params.exp_filter_time_constant_ms, (curr_filter_time_uS - last_filter_time_uS)/1000.0);
+            y_raw = expFilter(y_raw, y_rawPrev, storage_vars.filter_params.exp_filter_time_constant_ms, (curr_filter_time_uS - last_filter_time_uS)/1000.0);
+        }
+
+        last_filter_time_uS = curr_filter_time_uS;
 
         x_rawPrev = x_raw;
         y_rawPrev = y_raw;
@@ -407,9 +420,11 @@ void loop()
     }
 }
 
-float expFilter(float current, float prev, float weight)
+float expFilter(float current, float prev, float time_constant, float loop_period)
 {
-    return prev * (1 - weight) + current * (weight);
+    // Calculate factor from time constant
+    float factor = exp(-loop_period/time_constant);
+    return prev * (factor) + current * (1 - factor);
 }
 
 int median_of_3(int a, int b, int c)
@@ -506,6 +521,11 @@ bool loadFlashStorage(StorageVars_t *storage_vars)
         screenArea.x_max_size = 1920;
         screenArea.y_max_size = 1080;
 
+        FilterParams_t filter_params = {
+            .exp_filter_time_constant_ms = 20,
+            .exp_filter_activate = 0,
+        };
+
         // Set Default Sensor Home
         storage_vars->A_0 = 0;
         storage_vars->A_90 = (int)(4096 / 4);
@@ -516,6 +536,7 @@ bool loadFlashStorage(StorageVars_t *storage_vars)
         storage_vars->last_write_timestamp = 0;
         storage_vars->tablet_area = tabletArea;
         storage_vars->screen_size = screenArea;
+        storage_vars->filter_params = filter_params;
 
         // Write to Flash
         saveFlashStorage(*storage_vars);
@@ -552,6 +573,9 @@ bool printStorageVars(StorageVars_t *storage_vars)
     Serial.println("B_180: " + String(storage_vars->B_90, DEC));
     Serial.println("first_write_timestamp: " + String(int(storage_vars->first_write_timestamp), DEC));
     Serial.println("last_write_timestamp: " + String(int(storage_vars->last_write_timestamp), DEC));
+    Serial.println("filter_params:");
+    Serial.println("    exp_filter_time_constant_ms: " + String(storage_vars->filter_params.exp_filter_time_constant_ms));
+    Serial.println("    exp_filter_activate: " + String(storage_vars->filter_params.exp_filter_activate));
     Serial.println("tablet_area: ");
     Serial.println("    x_origin: " + String(storage_vars->tablet_area.x_origin));
     Serial.println("    y_origin: " + String(storage_vars->tablet_area.y_origin));
@@ -631,7 +655,7 @@ void showNewData()
                 Serial.println("B: " + String(valueB, DEC));
                 break;
 
-            case 'C':
+            case 'C': // Calibrate zero
                 storage_vars.A_0 = valueA;
                 storage_vars.A_90 = (storage_vars.A_0 - 1024) % 4096;
                 storage_vars.B_0 = valueB;
@@ -640,7 +664,7 @@ void showNewData()
                 printStorageVars(&storage_vars);
                 break;
 
-            case 'D':
+            case 'D': // Update tablet area
 
                 startPointer = receivedChars + 1;
                 storage_vars.tablet_area.x_origin = strtod(startPointer, &endPointer);
@@ -658,7 +682,7 @@ void showNewData()
                 printStorageVars(&storage_vars);
                 break;
 
-            case 'E':
+            case 'E': // Update Screen Size
 
                 startPointer = receivedChars + 1;
                 storage_vars.screen_size.x_max_size = strtol(startPointer, &endPointer, 10);
@@ -681,6 +705,19 @@ void showNewData()
                 saveFlashStorage(storage_vars);
                 printStorageVars(&storage_vars);
                 break;
+
+            case 'F': // Update Filter Params
+
+                startPointer = receivedChars + 1;
+                storage_vars.filter_params.exp_filter_activate = strtol(startPointer, &endPointer, 10);
+
+                startPointer = endPointer;
+                storage_vars.filter_params.exp_filter_time_constant_ms = strtod(startPointer, &endPointer);
+
+                saveFlashStorage(storage_vars);
+                printStorageVars(&storage_vars);
+                break;
+
             default:
                 break;
             }
