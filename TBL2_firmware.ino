@@ -17,6 +17,56 @@
 
 #define VERSION 2
 
+
+
+// FAST TRIG STUFF START
+
+
+#define INT16_BITS  (8 * sizeof(int16_t))
+#ifndef INT16_MAX
+#define INT16_MAX   ((1<<(INT16_BITS-1))-1)
+#endif
+
+/*
+ * "5 bit" large table = 32 values. The mask: all bit belonging to the table
+ * are 1, the all above 0.
+ */
+#define TABLE_BITS  (5)
+#define TABLE_SIZE  (1<<TABLE_BITS)
+#define TABLE_MASK  (TABLE_SIZE-1)
+ 
+/*
+ * The lookup table is to 90DEG, the input can be -360 to 360 DEG, where negative
+ * values are transformed to positive before further processing. We need two
+ * additional bits (*4) to represent 360 DEG:
+ */
+#define LOOKUP_BITS (TABLE_BITS+2)
+#define LOOKUP_MASK ((1<<LOOKUP_BITS)-1)
+#define FLIP_BIT    (1<<TABLE_BITS)
+#define NEGATE_BIT  (1<<(TABLE_BITS+1))
+#define INTERP_BITS (INT16_BITS-1-LOOKUP_BITS)
+#define INTERP_MASK ((1<<INTERP_BITS)-1)
+ 
+/**
+ * "5 bit" lookup table for the offsets. These are the sines for exactly
+ * at 0deg, 11.25deg, 22.5deg etc. The values are from -1 to 1 in Q15.
+ */
+int16_t sin90[TABLE_SIZE+1] = {
+  0x0000,0x0647,0x0c8b,0x12c7,0x18f8,0x1f19,0x2527,0x2b1e,
+  0x30fb,0x36b9,0x3c56,0x41cd,0x471c,0x4c3f,0x5133,0x55f4,
+  0x5a81,0x5ed6,0x62f1,0x66ce,0x6a6c,0x6dc9,0x70e1,0x73b5,
+  0x7640,0x7883,0x7a7c,0x7c29,0x7d89,0x7e9c,0x7f61,0x7fd7,
+  0x7fff
+};
+ 
+
+
+
+
+// FAST TRIG STUFF END
+
+
+
 class ActivateButton
 {
 public:
@@ -232,7 +282,7 @@ int A_90 = 3954 - (4096 / 4);
 int B_90 = 3872 - (4096 / 4);
 int B_180 = 3872;
 
-int pollRate_hz = 500;
+int pollRate_hz = 1000;
 int period_uS = (1000 * 1000) / pollRate_hz;
 unsigned long lastRunTime_uS = 0;
 unsigned long currentTime_uS = 0;
@@ -249,6 +299,8 @@ float x_max = x_origin + x_width;
 float y_height = screenHeight * 1.0 / screenWidth * x_width;
 float y_origin = y_height / 2;
 float y_max = y_origin - y_height;
+
+int l_count = 0;
 
 ActivateButton activateButton = ActivateButton(ACTIVATE_PIN);
 
@@ -318,8 +370,11 @@ void loop()
 
     if (currentTime_uS - lastRunTime_uS > period_uS)
     {
-
-        lastRunTime_uS = micros();
+        /*l_count ++;
+        if (l_count % 1 == 0){
+            Serial.printf("loop_period: %d\n", currentTime_uS - lastRunTime_uS);
+        }*/
+        lastRunTime_uS = currentTime_uS;
 
         //valueA = analogSample(POTA_PIN,ADCSamples);
         //valueB = analogSample(POTB_PIN,ADCSamples);
@@ -329,6 +384,8 @@ void loop()
 
         prevValueA = valueA;
         prevValueB = valueB;
+
+        
 
         // READ ANGLE A
         digitalWrite(SELECT_PIN, HIGH);
@@ -344,7 +401,7 @@ void loop()
 
         //Serial.println(valueA_median);
 
-        debugPrint(String(valueA, DEC) + "," + String(valueB, DEC) + "\n");
+        debugPrint("Raw: " + String(valueA, 2) + "," + String(valueB, 2) + "\n");
 
         // Sensor ADC counts to angle in degrees
         angleA = mapf(valueA, storage_vars.A_0, storage_vars.A_90, 0.0, 90.0);
@@ -420,6 +477,7 @@ void loop()
     }
 }
 
+
 float expFilter(float current, float prev, float time_constant, float loop_period)
 {
     // Calculate factor from time constant
@@ -455,7 +513,7 @@ int sort_desc(const void *cmp1, const void *cmp2)
 void ledService()
 {
 
-    float t_const = 0.002;
+    float t_const = 0.0001;
     float a_const = 1500;
 
     unsigned long current_time = millis();
@@ -472,20 +530,29 @@ void ledService()
     // Active
     if (activateButton.mouse_move_activated)
     {
-        analogWrite(R_PIN, sin(millis() * t_const) * a_const / 2 + a_const / 2);
-        analogWrite(G_PIN, sin(millis() * t_const + (2 * PI / 3)) * a_const / 2 + a_const / 2);
-        analogWrite(B_PIN, sin(millis() * t_const + (4 * PI / 3)) * a_const / 2 + a_const / 2);
+        analogWrite(R_PIN, sin1(  int16_t(  (fmodf(  (current_time * t_const + (0.0 / 3)  ),  2.0) - 1.0) * UINT16_MAX)) / float(INT16_MAX) * a_const / 2 + a_const / 1.8);
+        analogWrite(G_PIN, sin1(  int16_t(  (fmodf(  (current_time * t_const + (1.0 / 3)  ),  2.0) - 1.0) * UINT16_MAX)) / float(INT16_MAX) * a_const / 2 + a_const / 1.8);
+        analogWrite(B_PIN, sin1(  int16_t(  (fmodf(  (current_time * t_const + (2.0 / 3)  ),  2.0) - 1.0) * UINT16_MAX)) / float(INT16_MAX) * a_const / 2 + a_const / 1.8);
         return;
     }
 
     // Idle
-    t_const = 0.0008;
+    t_const = 0.0001;
     a_const = 0;
-    analogWrite(R_PIN, sin(millis() * t_const) * a_const / 2 + a_const / 2);
+    //analogWrite(R_PIN, sinf(float(current_time * t_const)) * a_const / 2 + a_const / 2);
+    analogWrite(R_PIN, sin1(  int16_t(  (fmodf(  (current_time * t_const + (0.0 / 3)  ),  2.0) - 1.0) * UINT16_MAX)) / float(INT16_MAX) * a_const * 0.0 + a_const / 1.8);
+
     a_const = 50;
-    analogWrite(G_PIN, sin(millis() * t_const + (3 * PI / 3)) * a_const / 2 + a_const / 1.8);
+    //analogWrite(G_PIN, sinf(float(current_time * t_const + (3 * PI / 3))) * a_const / 2 + a_const / 1.8);
+    analogWrite(G_PIN, sin1(  int16_t(  (fmodf(  (current_time * t_const + (1.0 / 3)  ),  2.0) - 1.0) * UINT16_MAX)) / float(INT16_MAX) * a_const * 0.0 + a_const / 1.8);
+
     a_const = 300;
-    analogWrite(B_PIN, sin(millis() * t_const + (4 * PI / 3)) * a_const / 2 + a_const / 1.8);
+    //analogWrite(B_PIN, sinf(float(current_time * t_const + (4 * PI / 3))) * a_const / 2 + a_const / 1.8);
+    analogWrite(B_PIN, sin1(  int16_t(  (fmodf(  (current_time * t_const + (2.0 / 3)  ),  2.0) - 1.0) * UINT16_MAX)) / float(INT16_MAX) * a_const * 0.0 + a_const / 1.8);
+    //Serial.println(  sin1(  int16_t(  (fmodf(  (current_time * t_const + (2.0 / 3)  ),  2.0) - 1.0) * UINT16_MAX)) / float(INT16_MAX) );
+    //Serial.println(sin1(fmodf((current_time * t_const + (2.0 / 3)), 1.0)*65535) * a_const / 2 + a_const / 1.8);
+
+    return;
 }
 
 bool loadFlashStorage(StorageVars_t *storage_vars)
@@ -725,4 +792,22 @@ void showNewData()
         if (receivedChars)
             newData = false;
     }
+}
+
+int16_t sin1(int16_t angle)
+{
+  int16_t v0, v1;
+  if(angle < 0) { angle += INT16_MAX; angle += 1; }
+  v0 = (angle >> INTERP_BITS);
+  if(v0 & FLIP_BIT) { v0 = ~v0; v1 = ~angle; } else { v1 = angle; }
+  v0 &= TABLE_MASK;
+  v1 = sin90[v0] + (int16_t) (((int32_t) (sin90[v0+1]-sin90[v0]) * (v1 & INTERP_MASK)) >> INTERP_BITS);
+  if((angle >> INTERP_BITS) & NEGATE_BIT) v1 = -v1;
+  return v1;
+}
+ 
+int16_t cos1(int16_t angle)
+{
+  if(angle < 0) { angle += INT16_MAX; angle += 1; }
+  return sin1(angle - (int16_t)(((int32_t)INT16_MAX * 270) / 360));
 }
