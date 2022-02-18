@@ -4,3 +4,5 @@
 
 # HYKU Tablet - Arduino Firmware
 This repo contains all firmware related files for the HYKU Tablet.
+
+Hex file in releases.
