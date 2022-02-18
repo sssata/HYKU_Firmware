@@ -20,7 +20,7 @@ class CustomAS5600 {
 
         uint8_t setConfRegister(word _conf);
 
-        word getRawAngleFast();
+        uint8_t getRawAngleFast(uint16_t *buffer);
 
         uint8_t writeOneByte(int adr_in, int dat_in);
 
