@@ -28,10 +28,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
         
-      - run: mkdir -p home/runner/.arduino15/packages/Seeeduino/hardware/samd/1.8.2/cores/arduino
+      - run: mkdir -p $GITHUB_WORKSPACE/Custom_library
       - run: ls $GITHUB_WORKSPACE
-      - run: cp $GITHUB_WORKSPACE/Custom_AS5600.cpp home/runner/.arduino15/packages/Seeeduino/hardware/samd/1.8.2/cores/arduino 
-      - run: cp $GITHUB_WORKSPACE/Custom_AS5600.h home/runner/.arduino15/packages/Seeeduino/hardware/samd/1.8.2/cores/arduino 
+      
+      - run: cp $GITHUB_WORKSPACE/Custom_AS5600.cpp $GITHUB_WORKSPACE/Custom_library
+      - run: cp $GITHUB_WORKSPACE/Custom_AS5600.h $GITHUB_WORKSPACE/Custom_library
         
       - name: Compile
         uses: ArminJo/arduino-test-compile@v3
