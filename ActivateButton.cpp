@@ -61,6 +61,8 @@ void ActivateButton::mainLoopService()
         }
 
         prev_mouse_pressed = mouse_pressed;
+
+        // stop mouse press if transitioning from deactivated to activated
         if (!long_press_flag && mouse_move_activated)
         {
             mouse_pressed = curr_state;

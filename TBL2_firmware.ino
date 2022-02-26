@@ -1,4 +1,4 @@
-#include <AS5600.h>
+
 #include <Wire.h>
 #include <AbsMouse.h>
 //#include <Keyboard.h>
@@ -16,10 +16,16 @@
 #define debugPrint(...)
 #endif
 
+#define errorPrint(...) Serial.print(__VA_ARGS__)
+
+
 #define VERSION 2
 
 #define ADC_BITS 12
 #define ADC_MAX_VAL pow(2,12)
+
+#define error_flash_state(...) while(true){Serial.printf(__VA_ARGS__), analogWrite(R_PIN, ADC_MAX_VAL); delay(500); analogWrite(R_PIN, 0); delay(500);}
+
 
 /* FAST TRIG STUFF START
 Credit: Stefan Wilhelm
@@ -171,53 +177,14 @@ float rValue = 0;
 float gValue = 0;
 float bValue = 0;
 
-int valueA = 0;
-int valueB = 0;
 
-int prevValueA = -1;
-int prevValueB = -1;
-float prevPrevValueA = -1;
-float prevPrevValueB = -1;
-
-float expFilterWeight = 1;
-float expFilterWeightXY = 1;
-
-float angleA = 0;
-float angleB = 0;
-
-int rawAngleA = 0;
-int rawAngleB = 0;
-
-float l1 = 60;
-float l2 = 60;
-
-float x_raw = 0;
-float y_raw = 0;
-float x_rawPrev = 0;
-float y_rawPrev = 0;
-
-int A_0 = 3954;
-int A_90 = 3954 - (4096 / 4);
-int B_90 = 3872 - (4096 / 4);
-int B_180 = 3872;
-
-int pollRate_hz = 600;
-int period_uS = (1000 * 1000) / pollRate_hz;
+int pollRate_hz = 605;
+unsigned long period_uS = (1000 * 1000) / pollRate_hz;
 unsigned long lastRunTime_uS = 0;
 unsigned long currentTime_uS = 0;
 
-float curr_filter_time_uS;
-float last_filter_time_uS;
-
-int screenWidth = 1920;
-int screenHeight = 1080;
-
-float x_origin = 40;
-float x_width = 67.7;
-float x_max = x_origin + x_width;
-float y_height = screenHeight * 1.0 / screenWidth * x_width;
-float y_origin = y_height / 2;
-float y_max = y_origin - y_height;
+unsigned long curr_filter_time_uS;
+unsigned long last_filter_time_uS;
 
 int l_count = 0;
 
@@ -255,16 +222,16 @@ void setup()
     err = as5600Sensor.as5600Setup();
     if (err != 0)
     {
-        analogWrite(R_PIN, 2048);
-        debugPrint("SENSOR A ERROR CODE: %d\n", err);
-        delay(1000);
+        //debugPrint("SENSOR A ERROR CODE: %d\n", err);
+        error_flash_state("SENSOR A ERROR CODE: %d\n", err)
     }
 
     uint16_t buffer;
 
     err = as5600Sensor.getRawAngleFast(&buffer);
     if (err != 0){
-        printf("Sensor A error code: %d", err);
+        analogWrite(R_PIN, ADC_MAX_VAL);
+        Serial.printf("Sensor A error code: %d\n", err);
     }else{
         sensor_vars.value_a = buffer;
         sensor_vars.value_a_prev = sensor_vars.value_a;
@@ -274,19 +241,18 @@ void setup()
     // Prepare Sensor B (elbow sensor)
     digitalWrite(SELECT_PIN, LOW);
     delayMicroseconds(50);
-    as5600Sensor.as5600Setup();
+    err = as5600Sensor.as5600Setup();
 
     if (err != 0)
     {
-        analogWrite(R_PIN, 2048);
-        debugPrint("SENSOR B ERROR CODE: %d\n", err);
-        delay(1000);
+        error_flash_state("SENSOR B ERROR CODE: %d\n", err)
     }
 
     err = as5600Sensor.getRawAngleFast(&buffer);
 
     if (err != 0){
-        printf("Sensor B error code: %d", err);
+        analogWrite(R_PIN, 2048);
+        Serial.printf("Sensor B error code: %d\n", err);
         
     }else{
         sensor_vars.value_b = buffer;
@@ -324,7 +290,8 @@ void loop()
         err = as5600Sensor.getRawAngleFast(&buffer);
 
         if (err != 0){
-            printf("Sensor A error code: %d", err);
+            analogWrite(R_PIN, ADC_MAX_VAL);
+            Serial.printf("Sensor A error code: %d\n", err);
         }else{
             // Sensor read OK
             sensor_vars.value_a = buffer;
@@ -338,7 +305,8 @@ void loop()
         err = as5600Sensor.getRawAngleFast(&buffer);
 
         if (err != 0){
-            printf("Sensor B error code: %d", err);
+            analogWrite(R_PIN, ADC_MAX_VAL);
+            Serial.printf("Sensor B error code: %d\n", err);
         }else{
             sensor_vars.value_b = buffer;
         }
@@ -449,6 +417,15 @@ float mapf(float x, float in_min, float in_max, float out_min, float out_max)
 {
     //debugPrint("x: " + String(x, 2) + ", in_min: " +String(in_min, 2) + ", in_max: " +String(in_max, 2) + ", out_min: " +String(out_min, 2) + ", out_max: " +String(out_max, 2) + "\n");
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+void error_led_flash(){
+    while (true){
+        analogWrite(R_PIN, ADC_MAX_VAL);
+        delay(500);
+        analogWrite(R_PIN, 0);
+        delay(500);
+    }
 }
 
 void ledService()
@@ -712,6 +689,8 @@ void showNewData()
 
                 saveFlashStorage(storage_vars);
                 printStorageVars(&storage_vars);
+
+                AbsMouse.init(storage_vars.screen_size.x_max_size, storage_vars.screen_size.y_max_size, false);
             }break;
 
             case 'F': {// Update Filter Params and handedness
