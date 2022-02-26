@@ -40,7 +40,7 @@ jobs:
           arduino-board-fqbn: Seeeduino:samd:seeed_XIAO_m0:usbstack=arduino,debug=off
           platform-url: https://files.seeedstudio.com/arduino/package_seeeduino_boards_index.json
           required-libraries: absmouse,FlashStorage_SAMD
-          build-properties: -DUSB_PRODUCT="Seeed XIAO M0"
+          build-properties: seeed_XIAO_m0.build.usb_product="HYKU Tablet"
           set-build-path: true
           debug-compile: true
           
