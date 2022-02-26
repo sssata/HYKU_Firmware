@@ -29,8 +29,9 @@ jobs:
         uses: actions/checkout@v2
         
       - run: mkdir -p home/runner/.arduino15/packages/Seeeduino/hardware/samd/1.8.2/cores/arduino
-      - run: cp home/runner/work/HYKU_Firmware/Custom_AS5600.cpp home/runner/.arduino15/packages/Seeeduino/hardware/samd/1.8.2/cores/arduino 
-      - run: cp home/runner/work/HYKU_Firmware/Custom_AS5600.h home/runner/.arduino15/packages/Seeeduino/hardware/samd/1.8.2/cores/arduino 
+      - run: ls $GITHUB_WORKSPACE
+      - run: cp $GITHUB_WORKSPACE/Custom_AS5600.cpp home/runner/.arduino15/packages/Seeeduino/hardware/samd/1.8.2/cores/arduino 
+      - run: cp $GITHUB_WORKSPACE/Custom_AS5600.h home/runner/.arduino15/packages/Seeeduino/hardware/samd/1.8.2/cores/arduino 
         
       - name: Compile
         uses: ArminJo/arduino-test-compile@v3
