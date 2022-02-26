@@ -28,7 +28,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
         
-      - run: mkdir $GITHUB_WORKSPACE/home/runner/.arduino15/packages/Seeeduino/hardware/samd/1.8.2/cores/arduino
+      - run: mkdir -p $GITHUB_WORKSPACE/home/runner/.arduino15/packages/Seeeduino/hardware/samd/1.8.2/cores/arduino
       - run: cp $GITHUB_WORKSPACE/home/runner/.arduino15/packages/Seeeduino/hardware/samd/1.8.2/cores/arduino /home/runner/work/HYKU_Firmware/Custom_AS5600.cpp
       - run: cp $GITHUB_WORKSPACE/home/runner/.arduino15/packages/Seeeduino/hardware/samd/1.8.2/cores/arduino /home/runner/work/HYKU_Firmware/Custom_AS5600.h
         
