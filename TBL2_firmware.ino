@@ -1,4 +1,3 @@
-#include <AS5600.h>
 #include <Wire.h>
 #include <AbsMouse.h>
 //#include <Keyboard.h>
