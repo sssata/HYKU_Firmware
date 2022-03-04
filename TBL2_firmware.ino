@@ -1,6 +1,7 @@
 
 #include <Wire.h>
 #include <AbsMouse.h>
+#include <ArduinoJson.h>
 //#include <Keyboard.h>
 #include "Custom_AS5600.h"
 #include "ActivateButton.h"
@@ -19,7 +20,7 @@
 #define errorPrint(...) Serial.print(__VA_ARGS__)
 
 
-#define VERSION 2
+#define VERSION 3
 
 #define ADC_BITS 12
 #define ADC_MAX_VAL pow(2,12)
@@ -69,6 +70,9 @@ int16_t sin90[TABLE_SIZE + 1] = {
     0x7fff};
 
 // FAST TRIG STUFF END
+
+
+
 
 typedef struct
 {
@@ -188,6 +192,7 @@ unsigned long last_filter_time_uS;
 
 int l_count = 0;
 
+
 ActivateButton activateButton = ActivateButton(ACTIVATE_PIN);
 
 void setup()
@@ -213,6 +218,7 @@ void setup()
     init_sensor_vars(&sensor_vars);
 
     AbsMouse.init(storage_vars.screen_size.x_max_size, storage_vars.screen_size.y_max_size, false);
+    //AbsMouse.init(storage_vars.screen_size.x_max_size, storage_vars.screen_size.y_max_size, false);
 
 
     // Prepare Sensor A (shoulder sensor)
@@ -390,9 +396,56 @@ void loop()
 
         ledService();
 
-        recvWithStartEndMarkers();
-        showNewData();
+        if (Serial.available()){
+            recvWithStartEndMarkers();
+        }
+        if(Serial.available()){
+            Serial.printf("start read_serial with %d lines received", Serial.available());
+
+            read_serial();
+        }
     }
+}
+
+void read_serial(){
+    Serial.println("bruh");
+
+    StaticJsonDocument<1024> json_doc_incoming;
+    
+    DeserializationError error = deserializeJson(json_doc_incoming, Serial);
+
+    if (error){
+        Serial.print(F("deserializeJson() failed: "));
+        Serial.println(error.c_str());
+        return;
+    }
+
+    Serial.println("deserializeJson ok");
+
+    const char* cmd = json_doc_incoming["cmd"];
+    
+    if (strcmp(cmd, "W") == 0){
+        Serial.println("Received W");
+        if(json_doc_incoming.containsKey("t.x")) storage_vars.tablet_area.x_origin = json_doc_incoming["t.x"].as<float>();
+        if(json_doc_incoming.containsKey("t.y")) storage_vars.tablet_area.y_origin = json_doc_incoming["t.y"].as<float>();
+        if(json_doc_incoming.containsKey("t.w")) storage_vars.tablet_area.x_size = json_doc_incoming["t.w"].as<float>();
+        if(json_doc_incoming.containsKey("t.h")) storage_vars.tablet_area.y_size = json_doc_incoming["t.h"].as<float>();
+        Serial.print(json_doc_incoming["t.x"].as<float>());
+        saveFlashStorage(storage_vars);
+    }
+    else if (strcmp(cmd, "R") == 0)
+    {
+        StaticJsonDocument<512> json_doc_outgoing;
+        Serial.println("Received R");
+        if(json_doc_incoming.containsKey("t.x")) json_doc_outgoing["t.x"] = serialized(String(storage_vars.tablet_area.x_origin, 3));
+        if(json_doc_incoming.containsKey("t.y")) json_doc_outgoing["t.y"] = storage_vars.tablet_area.y_origin;
+        if(json_doc_incoming.containsKey("t.w")) json_doc_outgoing["t.w"] = storage_vars.tablet_area.x_size;
+        if(json_doc_incoming.containsKey("t.h")) json_doc_outgoing["t.h"] = storage_vars.tablet_area.y_size;
+
+        serializeJson(json_doc_outgoing, Serial);
+        Serial.printf("free memory: %d bytes", freeMemory());
+    }
+    Serial.printf("read_json done\n");
 }
 
 
@@ -471,6 +524,14 @@ void ledService()
     //Serial.println(sin1(fmodf((current_time * t_const + (2.0 / 3)), 1.0)*65535) * a_const / 2 + a_const / 1.8);
 
     return;
+}
+
+extern "C" char* sbrk(int incr);
+
+
+int freeMemory() {
+  char top;
+  return &top - reinterpret_cast<char*>(sbrk(0));
 }
 
 bool loadFlashStorage(StorageVars_t *storage_vars)
@@ -589,10 +650,11 @@ void recvWithStartEndMarkers()
 
     while (Serial.available() > 0 && newData == false)
     {
-        rc = Serial.read();
+        rc = Serial.peek();
 
         if (recvInProgress == true)
-        {
+        {   
+            Serial.read();
             if (rc != endMarker)
             {
                 receivedChars[ndx] = rc;
@@ -608,16 +670,189 @@ void recvWithStartEndMarkers()
                 recvInProgress = false;
                 ndx = 0;
                 newData = true;
+                showNewData();
             }
         }
-
         else if (rc == startMarker)
-        {
+        {   
+            Serial.read();
             recvInProgress = true;
+        }
+        else{
+            break;
         }
     }
 }
 
+/*
+enum ParseStates_t {
+    WAIT_FOR_SYNC_PATTERN,
+    WAIT_FOR_HEADER,
+    WAIT_FOR_PAYLOAD,
+} parse_state;
+
+typedef struct {
+    unsigned long last_state_transition_time_ms;
+    unsigned long timeout_ms;
+} SoftTimer_t;
+
+typedef struct {
+    uint16_t payload_size;
+    uint16_t payload_type;
+    uint16_t header_crc;
+} Header_t;
+Header_t current_header;
+
+
+typedef struct {
+    uint8_t *payload;
+} Payload_t;
+Payload_t current_payload;
+
+SoftTimer_t state_timer;
+
+bool waiting_for_bytes = true;
+
+void init_timer(SoftTimer_t *timer, unsigned long timeout_ms){
+    timer->last_state_transition_time_ms = millis();
+    timer->timeout_ms = timeout_ms;
+}
+
+void reset_timer(SoftTimer_t *timer){
+    timer->last_state_transition_time_ms = millis();
+}
+
+bool is_timeout(SoftTimer_t *timer){
+    if (millis() - timer->last_state_transition_time_ms > timer->timeout_ms){
+        return true;
+    }
+    return false;
+}
+
+uint8_t sync_pattern [] = {0xAA, 0x55};
+
+
+// Credit to Robin2 for recvWithStartEndMarkers and showNewData functions
+// https://forum.arduino.cc/t/serial-input-basics-updated/382007
+void state_wait_for_sync_pattern()
+{
+    int search_index = 0;
+    uint8_t read_bytes[2];
+    
+    // Read bytes if enough bytes in buffer
+    while (Serial.available() >= sizeof(sync_pattern))
+    {
+        int incoming_int = Serial.peek();
+
+        if (incoming_int == -1){ //  No bytes incoming, break from loop
+            break;
+        }
+
+        // Check if incoming byte matches
+        if (incoming_int == sync_pattern[search_index]){
+            search_index++;  // if it matches, increment index
+            // Check if all bytes found
+            if (search_index == sizeof(sync_pattern) - 1){
+                parse_state = WAIT_FOR_HEADER;
+                reset_timer(&state_timer);
+            }
+        } else {
+            search_index = 0;
+        }
+        Serial.read();
+    }
+}
+
+void state_wait_for_header()
+{
+    int read_index = 0;
+    uint8_t read_bytes[sizeof(Header_t)];
+
+    if (is_timeout(&state_timer)){
+        parse_state = WAIT_FOR_SYNC_PATTERN;
+        reset_timer(&state_timer);
+    }
+    
+    // Read bytes if enough bytes in buffer
+    while (Serial.available() >= sizeof(Header_t))
+    {
+        int incoming_int = Serial.peek();
+
+        if (incoming_int == -1){ //  No bytes incoming, break from loop
+            break;
+        }
+
+        // Check if incoming byte matches
+        read_index++;  // if it matches, increment index
+        read_bytes[read_index] = Serial.read();
+        
+        // Check if all bytes found
+        if (read_index == sizeof(Header_t) - 1){
+            memcpy(&current_header, read_bytes, sizeof(current_header));
+            parse_state = WAIT_FOR_PAYLOAD;
+            reset_timer(&state_timer);
+        }
+
+    }
+}
+
+void state_wait_for_packet()
+{
+    int read_index = 0;
+    uint8_t *read_bytes = (uint8_t *)malloc(current_header.payload_size);
+
+    if (is_timeout(&state_timer)){
+        parse_state = WAIT_FOR_SYNC_PATTERN;
+        reset_timer(&state_timer);
+    }
+    
+    // Read bytes if enough bytes in buffer
+    while (Serial.available() >= sizeof(current_header.payload_size))
+    {
+        int incoming_int = Serial.peek();
+
+        if (incoming_int == -1){ //  No bytes incoming, break from loop
+            break;
+        }
+
+        // Check if incoming byte matches
+        read_index++;  // if it matches, increment index
+        read_bytes[read_index] = Serial.read();
+        
+        // Check if all bytes found
+        if (read_index == current_header.payload_size - 1){
+            current_payload.payload = read_bytes;
+            parse_state = WAIT_FOR_SYNC_PATTERN;
+            reset_timer(&state_timer);
+        }
+    }
+}
+
+bool read_data(){
+    
+    while(Serial.available() > 0){
+        switch (parse_state)
+        {
+        case WAIT_FOR_SYNC_PATTERN:
+            state_wait_for_sync_pattern();
+            break;
+
+        case WAIT_FOR_HEADER:
+            state_wait_for_header();
+            break;
+
+        case WAIT_FOR_PAYLOAD:
+            state_wait_for_packet();
+            break;
+        
+        default:
+            break;
+        }
+    }
+}
+
+
+*/
 void showNewData()
 {
     if (newData == true)
