@@ -400,52 +400,130 @@ void loop()
             recvWithStartEndMarkers();
         }
         if(Serial.available()){
-            Serial.printf("start read_serial with %d lines received", Serial.available());
-
             read_serial();
         }
     }
 }
 
 void read_serial(){
-    Serial.println("bruh");
 
-    StaticJsonDocument<1024> json_doc_incoming;
-    
+    // Init staic json docs
+    StaticJsonDocument<512> json_doc_incoming;
+    StaticJsonDocument<512> json_doc_outgoing;
+
+    // Try to deserialize from Serial stream
     DeserializationError error = deserializeJson(json_doc_incoming, Serial);
 
+    // Detect Deserialize error
     if (error){
         Serial.print(F("deserializeJson() failed: "));
         Serial.println(error.c_str());
         return;
     }
 
-    Serial.println("deserializeJson ok");
-
+    // Try to get command
     const char* cmd = json_doc_incoming["cmd"];
-    
+    if (cmd == nullptr){
+        Serial.println(F("No cmd key found"));
+    }
+
+    // Parse command (unfortunately can't use switch/case because string comp)
+    // W: Write to storage
     if (strcmp(cmd, "W") == 0){
-        Serial.println("Received W");
+
+        json_doc_outgoing["cmd"] = "W";
+
         if(json_doc_incoming.containsKey("t.x")) storage_vars.tablet_area.x_origin = json_doc_incoming["t.x"].as<float>();
         if(json_doc_incoming.containsKey("t.y")) storage_vars.tablet_area.y_origin = json_doc_incoming["t.y"].as<float>();
         if(json_doc_incoming.containsKey("t.w")) storage_vars.tablet_area.x_size = json_doc_incoming["t.w"].as<float>();
         if(json_doc_incoming.containsKey("t.h")) storage_vars.tablet_area.y_size = json_doc_incoming["t.h"].as<float>();
-        Serial.print(json_doc_incoming["t.x"].as<float>());
+
+        if(json_doc_incoming.containsKey("s.x")) storage_vars.screen_size.x_origin = json_doc_incoming["s.x"].as<int>();
+        if(json_doc_incoming.containsKey("s.y")) storage_vars.screen_size.y_origin = json_doc_incoming["s.y"].as<int>();
+        if(json_doc_incoming.containsKey("s.w")) storage_vars.screen_size.x_size = json_doc_incoming["s.w"].as<int>();
+        if(json_doc_incoming.containsKey("s.h")) storage_vars.screen_size.y_size = json_doc_incoming["s.h"].as<int>();
+        if(json_doc_incoming.containsKey("s.wm")) storage_vars.screen_size.x_max_size = json_doc_incoming["s.wm"].as<int>();
+        if(json_doc_incoming.containsKey("s.hm")) storage_vars.screen_size.y_max_size = json_doc_incoming["s.hm"].as<int>();
+
+        if(json_doc_incoming.containsKey("a0")) storage_vars.A_0 = json_doc_incoming["a0"].as<int>();
+        if(json_doc_incoming.containsKey("b0")) storage_vars.B_0 = json_doc_incoming["b0"].as<int>();
+
+        if(json_doc_incoming.containsKey("f.a")) storage_vars.filter_params.exp_filter_activate = json_doc_incoming["f.a"].as<bool>();
+        if(json_doc_incoming.containsKey("s.c")) storage_vars.filter_params.exp_filter_time_constant_ms = json_doc_incoming["s.c"].as<float>();
+
+        if(json_doc_incoming.containsKey("left")) storage_vars.is_left_hand = json_doc_incoming["left"].as<bool>();
+
+        if(json_doc_incoming.containsKey("b.k")) storage_vars.button_settings.key_keyboard = json_doc_incoming["b.k"].as<int>();
+        if(json_doc_incoming.containsKey("b.m")) storage_vars.button_settings.key_mouse = json_doc_incoming["b.m"].as<int>();
+        if(json_doc_incoming.containsKey("b.t")) storage_vars.button_settings.key_type = static_cast<KeyType_t>(json_doc_incoming["b.t"].as<int>());
+        if(json_doc_incoming.containsKey("b.l")) storage_vars.button_settings.long_press_time_ms = json_doc_incoming["b.l"].as<int>();
+
         saveFlashStorage(storage_vars);
     }
+
+    // R: Read from storage
     else if (strcmp(cmd, "R") == 0)
     {
-        StaticJsonDocument<512> json_doc_outgoing;
-        Serial.println("Received R");
-        if(json_doc_incoming.containsKey("t.x")) json_doc_outgoing["t.x"] = serialized(String(storage_vars.tablet_area.x_origin, 3));
-        if(json_doc_incoming.containsKey("t.y")) json_doc_outgoing["t.y"] = storage_vars.tablet_area.y_origin;
-        if(json_doc_incoming.containsKey("t.w")) json_doc_outgoing["t.w"] = storage_vars.tablet_area.x_size;
-        if(json_doc_incoming.containsKey("t.h")) json_doc_outgoing["t.h"] = storage_vars.tablet_area.y_size;
+        json_doc_outgoing["cmd"] = "R";
 
-        serializeJson(json_doc_outgoing, Serial);
-        Serial.printf("free memory: %d bytes", freeMemory());
+        if(json_doc_incoming.containsKey("t.x")) json_doc_outgoing["t.x"] = serialized(String(storage_vars.tablet_area.x_origin, 3));
+        if(json_doc_incoming.containsKey("t.y")) json_doc_outgoing["t.y"] = serialized(String(storage_vars.tablet_area.y_origin, 3));
+        if(json_doc_incoming.containsKey("t.w")) json_doc_outgoing["t.w"] = serialized(String(storage_vars.tablet_area.x_size, 3));
+        if(json_doc_incoming.containsKey("t.h")) json_doc_outgoing["t.h"] = serialized(String(storage_vars.tablet_area.y_size, 3));
+
+        if(json_doc_incoming.containsKey("s.x")) json_doc_outgoing["s.x"] = storage_vars.screen_size.x_origin;
+        if(json_doc_incoming.containsKey("s.y")) json_doc_outgoing["s.y"] = storage_vars.screen_size.y_origin;
+        if(json_doc_incoming.containsKey("s.w")) json_doc_outgoing["s.w"] = storage_vars.screen_size.x_size;
+        if(json_doc_incoming.containsKey("s.h")) json_doc_outgoing["s.h"] = storage_vars.screen_size.y_size;
+        if(json_doc_incoming.containsKey("s.wm")) json_doc_outgoing["s.wm"] = storage_vars.screen_size.x_max_size;
+        if(json_doc_incoming.containsKey("s.hm")) json_doc_outgoing["s.hm"] = storage_vars.screen_size.y_max_size;
+
+        if(json_doc_incoming.containsKey("a0")) json_doc_outgoing["a0"] = storage_vars.A_0;
+        if(json_doc_incoming.containsKey("b0")) json_doc_outgoing["b0"] = storage_vars.B_0;
+
+        if(json_doc_incoming.containsKey("f.a")) json_doc_outgoing["f.a"] = storage_vars.filter_params.exp_filter_activate;
+        if(json_doc_incoming.containsKey("f.c")) json_doc_outgoing["f.c"] = storage_vars.filter_params.exp_filter_time_constant_ms;
+
+        if(json_doc_incoming.containsKey("b.k")) json_doc_outgoing["b.k"] = storage_vars.button_settings.key_keyboard;
+        if(json_doc_incoming.containsKey("b.m")) json_doc_outgoing["b.m"] = storage_vars.button_settings.key_mouse;
+        if(json_doc_incoming.containsKey("b.t")) json_doc_outgoing["b.t"] = static_cast<int>(storage_vars.button_settings.key_type);
+        if(json_doc_incoming.containsKey("b.l")) json_doc_outgoing["b.l"] = storage_vars.button_settings.long_press_time_ms;
+
+        if(json_doc_incoming.containsKey("A")) json_doc_outgoing["A"] = sensor_vars.value_a;
+        if(json_doc_incoming.containsKey("B")) json_doc_outgoing["B"] = sensor_vars.value_b;
+
+        if(json_doc_incoming.containsKey("X")) json_doc_outgoing["X"] = sensor_vars.x_raw;
+        if(json_doc_incoming.containsKey("Y")) json_doc_outgoing["Y"] = sensor_vars.y_raw;
     }
-    Serial.printf("read_json done\n");
+
+    // C: Calibrate
+    else if (strcmp(cmd, "C") == 0){
+
+        json_doc_outgoing["cmd"] = "C";
+
+        storage_vars.A_0 = sensor_vars.value_a;
+        storage_vars.B_0 = sensor_vars.value_b;
+
+        json_doc_outgoing["a0"] = storage_vars.A_0;
+        json_doc_outgoing["b0"] = storage_vars.B_0;
+        saveFlashStorage(storage_vars);
+    }
+
+    // V: Get Version
+    else if (strcmp(cmd, "V") == 0){
+
+        json_doc_outgoing["cmd"] = "V";
+
+        json_doc_outgoing["V"] = VERSION;
+    }
+    else {
+        Serial.printf("Invalid cmd: %s", cmd);
+    }
+
+    // Reply with json doc
+
+    serializeJson(json_doc_outgoing, Serial);
+    Serial.print("\n");
 }
 
 
@@ -524,14 +602,6 @@ void ledService()
     //Serial.println(sin1(fmodf((current_time * t_const + (2.0 / 3)), 1.0)*65535) * a_const / 2 + a_const / 1.8);
 
     return;
-}
-
-extern "C" char* sbrk(int incr);
-
-
-int freeMemory() {
-  char top;
-  return &top - reinterpret_cast<char*>(sbrk(0));
 }
 
 bool loadFlashStorage(StorageVars_t *storage_vars)
@@ -638,6 +708,9 @@ bool printStorageVars(StorageVars_t *storage_vars)
     Serial.println("    y_size: " + String(storage_vars->screen_size.y_size));
 }
 
+// Legacy Serial packet parsing.
+// Packet structure: <A xx yy zz>
+// Where A is the command xx yy zz are the arguments
 // Credit to Robin2 for recvWithStartEndMarkers and showNewData functions
 // https://forum.arduino.cc/t/serial-input-basics-updated/382007
 void recvWithStartEndMarkers()
@@ -684,175 +757,9 @@ void recvWithStartEndMarkers()
     }
 }
 
-/*
-enum ParseStates_t {
-    WAIT_FOR_SYNC_PATTERN,
-    WAIT_FOR_HEADER,
-    WAIT_FOR_PAYLOAD,
-} parse_state;
-
-typedef struct {
-    unsigned long last_state_transition_time_ms;
-    unsigned long timeout_ms;
-} SoftTimer_t;
-
-typedef struct {
-    uint16_t payload_size;
-    uint16_t payload_type;
-    uint16_t header_crc;
-} Header_t;
-Header_t current_header;
-
-
-typedef struct {
-    uint8_t *payload;
-} Payload_t;
-Payload_t current_payload;
-
-SoftTimer_t state_timer;
-
-bool waiting_for_bytes = true;
-
-void init_timer(SoftTimer_t *timer, unsigned long timeout_ms){
-    timer->last_state_transition_time_ms = millis();
-    timer->timeout_ms = timeout_ms;
-}
-
-void reset_timer(SoftTimer_t *timer){
-    timer->last_state_transition_time_ms = millis();
-}
-
-bool is_timeout(SoftTimer_t *timer){
-    if (millis() - timer->last_state_transition_time_ms > timer->timeout_ms){
-        return true;
-    }
-    return false;
-}
-
-uint8_t sync_pattern [] = {0xAA, 0x55};
-
-
-// Credit to Robin2 for recvWithStartEndMarkers and showNewData functions
-// https://forum.arduino.cc/t/serial-input-basics-updated/382007
-void state_wait_for_sync_pattern()
-{
-    int search_index = 0;
-    uint8_t read_bytes[2];
-    
-    // Read bytes if enough bytes in buffer
-    while (Serial.available() >= sizeof(sync_pattern))
-    {
-        int incoming_int = Serial.peek();
-
-        if (incoming_int == -1){ //  No bytes incoming, break from loop
-            break;
-        }
-
-        // Check if incoming byte matches
-        if (incoming_int == sync_pattern[search_index]){
-            search_index++;  // if it matches, increment index
-            // Check if all bytes found
-            if (search_index == sizeof(sync_pattern) - 1){
-                parse_state = WAIT_FOR_HEADER;
-                reset_timer(&state_timer);
-            }
-        } else {
-            search_index = 0;
-        }
-        Serial.read();
-    }
-}
-
-void state_wait_for_header()
-{
-    int read_index = 0;
-    uint8_t read_bytes[sizeof(Header_t)];
-
-    if (is_timeout(&state_timer)){
-        parse_state = WAIT_FOR_SYNC_PATTERN;
-        reset_timer(&state_timer);
-    }
-    
-    // Read bytes if enough bytes in buffer
-    while (Serial.available() >= sizeof(Header_t))
-    {
-        int incoming_int = Serial.peek();
-
-        if (incoming_int == -1){ //  No bytes incoming, break from loop
-            break;
-        }
-
-        // Check if incoming byte matches
-        read_index++;  // if it matches, increment index
-        read_bytes[read_index] = Serial.read();
-        
-        // Check if all bytes found
-        if (read_index == sizeof(Header_t) - 1){
-            memcpy(&current_header, read_bytes, sizeof(current_header));
-            parse_state = WAIT_FOR_PAYLOAD;
-            reset_timer(&state_timer);
-        }
-
-    }
-}
-
-void state_wait_for_packet()
-{
-    int read_index = 0;
-    uint8_t *read_bytes = (uint8_t *)malloc(current_header.payload_size);
-
-    if (is_timeout(&state_timer)){
-        parse_state = WAIT_FOR_SYNC_PATTERN;
-        reset_timer(&state_timer);
-    }
-    
-    // Read bytes if enough bytes in buffer
-    while (Serial.available() >= sizeof(current_header.payload_size))
-    {
-        int incoming_int = Serial.peek();
-
-        if (incoming_int == -1){ //  No bytes incoming, break from loop
-            break;
-        }
-
-        // Check if incoming byte matches
-        read_index++;  // if it matches, increment index
-        read_bytes[read_index] = Serial.read();
-        
-        // Check if all bytes found
-        if (read_index == current_header.payload_size - 1){
-            current_payload.payload = read_bytes;
-            parse_state = WAIT_FOR_SYNC_PATTERN;
-            reset_timer(&state_timer);
-        }
-    }
-}
-
-bool read_data(){
-    
-    while(Serial.available() > 0){
-        switch (parse_state)
-        {
-        case WAIT_FOR_SYNC_PATTERN:
-            state_wait_for_sync_pattern();
-            break;
-
-        case WAIT_FOR_HEADER:
-            state_wait_for_header();
-            break;
-
-        case WAIT_FOR_PAYLOAD:
-            state_wait_for_packet();
-            break;
-        
-        default:
-            break;
-        }
-    }
-}
-
-
-*/
+/***
+ * Callback for when legacy packet is formed
+ */
 void showNewData()
 {
     if (newData == true)
