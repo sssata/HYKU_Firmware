@@ -1,4 +1,3 @@
-
 #include <Wire.h>
 #include <AbsMouse.h>
 #include <ArduinoJson.h>
