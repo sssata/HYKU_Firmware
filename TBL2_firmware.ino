@@ -20,7 +20,7 @@
 #define errorPrint(...) Serial.print(__VA_ARGS__)
 
 
-#define VERSION 3
+#define VERSION 4
 
 #define ADC_BITS 12
 #define ADC_MAX_VAL pow(2,12)
@@ -449,7 +449,7 @@ void read_serial(){
         if(json_doc_incoming.containsKey("b0")) storage_vars.B_0 = json_doc_incoming["b0"].as<int>();
 
         if(json_doc_incoming.containsKey("f.a")) storage_vars.filter_params.exp_filter_activate = json_doc_incoming["f.a"].as<bool>();
-        if(json_doc_incoming.containsKey("s.c")) storage_vars.filter_params.exp_filter_time_constant_ms = json_doc_incoming["s.c"].as<float>();
+        if(json_doc_incoming.containsKey("f.c")) storage_vars.filter_params.exp_filter_time_constant_ms = json_doc_incoming["f.c"].as<float>();
 
         if(json_doc_incoming.containsKey("left")) storage_vars.is_left_hand = json_doc_incoming["left"].as<bool>();
 
@@ -521,7 +521,6 @@ void read_serial(){
     }
 
     // Reply with json doc
-
     serializeJson(json_doc_outgoing, Serial);
     Serial.print("\n");
 }
