@@ -1,6 +1,8 @@
 #include <Wire.h>
 #include "Custom_AS5600.h"
 
+#define error_flash_state(...) while(true){Serial.printf(__VA_ARGS__), analogWrite(9, 2048); delay(500); analogWrite(9, 0); delay(500);}
+
 CustomAS5600::CustomAS5600()
 {
     ///empty

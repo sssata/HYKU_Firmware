@@ -1,5 +1,6 @@
 #include <Wire.h>
 #include <AbsMouse.h>
+#include <ArduinoJson.h>
 //#include <Keyboard.h>
 #include "Custom_AS5600.h"
 #include "ActivateButton.h"
@@ -15,10 +16,16 @@
 #define debugPrint(...)
 #endif
 
-#define VERSION 2
+#define errorPrint(...) Serial.print(__VA_ARGS__)
+
+
+#define VERSION 4
 
 #define ADC_BITS 12
 #define ADC_MAX_VAL pow(2,12)
+
+#define error_flash_state(...) while(true){Serial.printf(__VA_ARGS__), analogWrite(R_PIN, ADC_MAX_VAL); delay(500); analogWrite(R_PIN, 0); delay(500);}
+
 
 /* FAST TRIG STUFF START
 Credit: Stefan Wilhelm
@@ -62,6 +69,9 @@ int16_t sin90[TABLE_SIZE + 1] = {
     0x7fff};
 
 // FAST TRIG STUFF END
+
+
+
 
 typedef struct
 {
@@ -170,55 +180,17 @@ float rValue = 0;
 float gValue = 0;
 float bValue = 0;
 
-int valueA = 0;
-int valueB = 0;
 
-int prevValueA = -1;
-int prevValueB = -1;
-float prevPrevValueA = -1;
-float prevPrevValueB = -1;
-
-float expFilterWeight = 1;
-float expFilterWeightXY = 1;
-
-float angleA = 0;
-float angleB = 0;
-
-int rawAngleA = 0;
-int rawAngleB = 0;
-
-float l1 = 60;
-float l2 = 60;
-
-float x_raw = 0;
-float y_raw = 0;
-float x_rawPrev = 0;
-float y_rawPrev = 0;
-
-int A_0 = 3954;
-int A_90 = 3954 - (4096 / 4);
-int B_90 = 3872 - (4096 / 4);
-int B_180 = 3872;
-
-int pollRate_hz = 600;
-int period_uS = (1000 * 1000) / pollRate_hz;
+int pollRate_hz = 605;
+unsigned long period_uS = (1000 * 1000) / pollRate_hz;
 unsigned long lastRunTime_uS = 0;
 unsigned long currentTime_uS = 0;
 
-float curr_filter_time_uS;
-float last_filter_time_uS;
-
-int screenWidth = 1920;
-int screenHeight = 1080;
-
-float x_origin = 40;
-float x_width = 67.7;
-float x_max = x_origin + x_width;
-float y_height = screenHeight * 1.0 / screenWidth * x_width;
-float y_origin = y_height / 2;
-float y_max = y_origin - y_height;
+unsigned long curr_filter_time_uS;
+unsigned long last_filter_time_uS;
 
 int l_count = 0;
+
 
 ActivateButton activateButton = ActivateButton(ACTIVATE_PIN);
 
@@ -245,6 +217,7 @@ void setup()
     init_sensor_vars(&sensor_vars);
 
     AbsMouse.init(storage_vars.screen_size.x_max_size, storage_vars.screen_size.y_max_size, false);
+    //AbsMouse.init(storage_vars.screen_size.x_max_size, storage_vars.screen_size.y_max_size, false);
 
 
     // Prepare Sensor A (shoulder sensor)
@@ -254,16 +227,16 @@ void setup()
     err = as5600Sensor.as5600Setup();
     if (err != 0)
     {
-        analogWrite(R_PIN, 2048);
-        debugPrint("SENSOR A ERROR CODE: %d\n", err);
-        delay(1000);
+        //debugPrint("SENSOR A ERROR CODE: %d\n", err);
+        error_flash_state("SENSOR A ERROR CODE: %d\n", err)
     }
 
     uint16_t buffer;
 
     err = as5600Sensor.getRawAngleFast(&buffer);
     if (err != 0){
-        printf("Sensor A error code: %d", err);
+        analogWrite(R_PIN, ADC_MAX_VAL);
+        Serial.printf("Sensor A error code: %d\n", err);
     }else{
         sensor_vars.value_a = buffer;
         sensor_vars.value_a_prev = sensor_vars.value_a;
@@ -273,19 +246,18 @@ void setup()
     // Prepare Sensor B (elbow sensor)
     digitalWrite(SELECT_PIN, LOW);
     delayMicroseconds(50);
-    as5600Sensor.as5600Setup();
+    err = as5600Sensor.as5600Setup();
 
     if (err != 0)
     {
-        analogWrite(R_PIN, 2048);
-        debugPrint("SENSOR B ERROR CODE: %d\n", err);
-        delay(1000);
+        error_flash_state("SENSOR B ERROR CODE: %d\n", err)
     }
 
     err = as5600Sensor.getRawAngleFast(&buffer);
 
     if (err != 0){
-        printf("Sensor B error code: %d", err);
+        analogWrite(R_PIN, 2048);
+        Serial.printf("Sensor B error code: %d\n", err);
         
     }else{
         sensor_vars.value_b = buffer;
@@ -323,7 +295,8 @@ void loop()
         err = as5600Sensor.getRawAngleFast(&buffer);
 
         if (err != 0){
-            printf("Sensor A error code: %d", err);
+            analogWrite(R_PIN, ADC_MAX_VAL);
+            Serial.printf("Sensor A error code: %d\n", err);
         }else{
             // Sensor read OK
             sensor_vars.value_a = buffer;
@@ -337,7 +310,8 @@ void loop()
         err = as5600Sensor.getRawAngleFast(&buffer);
 
         if (err != 0){
-            printf("Sensor B error code: %d", err);
+            analogWrite(R_PIN, ADC_MAX_VAL);
+            Serial.printf("Sensor B error code: %d\n", err);
         }else{
             sensor_vars.value_b = buffer;
         }
@@ -421,9 +395,133 @@ void loop()
 
         ledService();
 
-        recvWithStartEndMarkers();
-        showNewData();
+        if (Serial.available()){
+            recvWithStartEndMarkers();
+        }
+        if(Serial.available()){
+            read_serial();
+        }
     }
+}
+
+void read_serial(){
+
+    // Init staic json docs
+    StaticJsonDocument<512> json_doc_incoming;
+    StaticJsonDocument<512> json_doc_outgoing;
+
+    // Try to deserialize from Serial stream
+    DeserializationError error = deserializeJson(json_doc_incoming, Serial);
+
+    // Detect Deserialize error
+    if (error){
+        Serial.print(F("deserializeJson() failed: "));
+        Serial.println(error.c_str());
+        return;
+    }
+
+    // Try to get command
+    const char* cmd = json_doc_incoming["cmd"];
+    if (cmd == nullptr){
+        Serial.println(F("No cmd key found"));
+    }
+
+    // Parse command (unfortunately can't use switch/case because string comp)
+    // W: Write to storage
+    if (strcmp(cmd, "W") == 0){
+
+        json_doc_outgoing["cmd"] = "W";
+
+        if(json_doc_incoming.containsKey("t.x")) storage_vars.tablet_area.x_origin = json_doc_incoming["t.x"].as<float>();
+        if(json_doc_incoming.containsKey("t.y")) storage_vars.tablet_area.y_origin = json_doc_incoming["t.y"].as<float>();
+        if(json_doc_incoming.containsKey("t.w")) storage_vars.tablet_area.x_size = json_doc_incoming["t.w"].as<float>();
+        if(json_doc_incoming.containsKey("t.h")) storage_vars.tablet_area.y_size = json_doc_incoming["t.h"].as<float>();
+
+        if(json_doc_incoming.containsKey("s.x")) storage_vars.screen_size.x_origin = json_doc_incoming["s.x"].as<int>();
+        if(json_doc_incoming.containsKey("s.y")) storage_vars.screen_size.y_origin = json_doc_incoming["s.y"].as<int>();
+        if(json_doc_incoming.containsKey("s.w")) storage_vars.screen_size.x_size = json_doc_incoming["s.w"].as<int>();
+        if(json_doc_incoming.containsKey("s.h")) storage_vars.screen_size.y_size = json_doc_incoming["s.h"].as<int>();
+        if(json_doc_incoming.containsKey("s.wm")) storage_vars.screen_size.x_max_size = json_doc_incoming["s.wm"].as<int>();
+        if(json_doc_incoming.containsKey("s.hm")) storage_vars.screen_size.y_max_size = json_doc_incoming["s.hm"].as<int>();
+
+        if(json_doc_incoming.containsKey("a0")) storage_vars.A_0 = json_doc_incoming["a0"].as<int>();
+        if(json_doc_incoming.containsKey("b0")) storage_vars.B_0 = json_doc_incoming["b0"].as<int>();
+
+        if(json_doc_incoming.containsKey("f.a")) storage_vars.filter_params.exp_filter_activate = json_doc_incoming["f.a"].as<bool>();
+        if(json_doc_incoming.containsKey("f.c")) storage_vars.filter_params.exp_filter_time_constant_ms = json_doc_incoming["f.c"].as<float>();
+
+        if(json_doc_incoming.containsKey("left")) storage_vars.is_left_hand = json_doc_incoming["left"].as<bool>();
+
+        if(json_doc_incoming.containsKey("b.k")) storage_vars.button_settings.key_keyboard = json_doc_incoming["b.k"].as<int>();
+        if(json_doc_incoming.containsKey("b.m")) storage_vars.button_settings.key_mouse = json_doc_incoming["b.m"].as<int>();
+        if(json_doc_incoming.containsKey("b.t")) storage_vars.button_settings.key_type = static_cast<KeyType_t>(json_doc_incoming["b.t"].as<int>());
+        if(json_doc_incoming.containsKey("b.l")) storage_vars.button_settings.long_press_time_ms = json_doc_incoming["b.l"].as<int>();
+
+        saveFlashStorage(storage_vars);
+    }
+
+    // R: Read from storage
+    else if (strcmp(cmd, "R") == 0)
+    {
+        json_doc_outgoing["cmd"] = "R";
+
+        if(json_doc_incoming.containsKey("t.x")) json_doc_outgoing["t.x"] = serialized(String(storage_vars.tablet_area.x_origin, 3));
+        if(json_doc_incoming.containsKey("t.y")) json_doc_outgoing["t.y"] = serialized(String(storage_vars.tablet_area.y_origin, 3));
+        if(json_doc_incoming.containsKey("t.w")) json_doc_outgoing["t.w"] = serialized(String(storage_vars.tablet_area.x_size, 3));
+        if(json_doc_incoming.containsKey("t.h")) json_doc_outgoing["t.h"] = serialized(String(storage_vars.tablet_area.y_size, 3));
+
+        if(json_doc_incoming.containsKey("s.x")) json_doc_outgoing["s.x"] = storage_vars.screen_size.x_origin;
+        if(json_doc_incoming.containsKey("s.y")) json_doc_outgoing["s.y"] = storage_vars.screen_size.y_origin;
+        if(json_doc_incoming.containsKey("s.w")) json_doc_outgoing["s.w"] = storage_vars.screen_size.x_size;
+        if(json_doc_incoming.containsKey("s.h")) json_doc_outgoing["s.h"] = storage_vars.screen_size.y_size;
+        if(json_doc_incoming.containsKey("s.wm")) json_doc_outgoing["s.wm"] = storage_vars.screen_size.x_max_size;
+        if(json_doc_incoming.containsKey("s.hm")) json_doc_outgoing["s.hm"] = storage_vars.screen_size.y_max_size;
+
+        if(json_doc_incoming.containsKey("a0")) json_doc_outgoing["a0"] = storage_vars.A_0;
+        if(json_doc_incoming.containsKey("b0")) json_doc_outgoing["b0"] = storage_vars.B_0;
+
+        if(json_doc_incoming.containsKey("f.a")) json_doc_outgoing["f.a"] = storage_vars.filter_params.exp_filter_activate;
+        if(json_doc_incoming.containsKey("f.c")) json_doc_outgoing["f.c"] = storage_vars.filter_params.exp_filter_time_constant_ms;
+
+        if(json_doc_incoming.containsKey("b.k")) json_doc_outgoing["b.k"] = storage_vars.button_settings.key_keyboard;
+        if(json_doc_incoming.containsKey("b.m")) json_doc_outgoing["b.m"] = storage_vars.button_settings.key_mouse;
+        if(json_doc_incoming.containsKey("b.t")) json_doc_outgoing["b.t"] = static_cast<int>(storage_vars.button_settings.key_type);
+        if(json_doc_incoming.containsKey("b.l")) json_doc_outgoing["b.l"] = storage_vars.button_settings.long_press_time_ms;
+
+        if(json_doc_incoming.containsKey("A")) json_doc_outgoing["A"] = sensor_vars.value_a;
+        if(json_doc_incoming.containsKey("B")) json_doc_outgoing["B"] = sensor_vars.value_b;
+
+        if(json_doc_incoming.containsKey("X")) json_doc_outgoing["X"] = sensor_vars.x_raw;
+        if(json_doc_incoming.containsKey("Y")) json_doc_outgoing["Y"] = sensor_vars.y_raw;
+    }
+
+    // C: Calibrate
+    else if (strcmp(cmd, "C") == 0){
+
+        json_doc_outgoing["cmd"] = "C";
+
+        storage_vars.A_0 = sensor_vars.value_a;
+        storage_vars.B_0 = sensor_vars.value_b;
+
+        json_doc_outgoing["a0"] = storage_vars.A_0;
+        json_doc_outgoing["b0"] = storage_vars.B_0;
+        saveFlashStorage(storage_vars);
+    }
+
+    // V: Get Version
+    else if (strcmp(cmd, "V") == 0){
+
+        json_doc_outgoing["cmd"] = "V";
+
+        json_doc_outgoing["V"] = VERSION;
+    }
+    else {
+        Serial.printf("Invalid cmd: %s", cmd);
+    }
+
+    // Reply with json doc
+    serializeJson(json_doc_outgoing, Serial);
+    Serial.print("\n");
 }
 
 
@@ -448,6 +546,15 @@ float mapf(float x, float in_min, float in_max, float out_min, float out_max)
 {
     //debugPrint("x: " + String(x, 2) + ", in_min: " +String(in_min, 2) + ", in_max: " +String(in_max, 2) + ", out_min: " +String(out_min, 2) + ", out_max: " +String(out_max, 2) + "\n");
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+void error_led_flash(){
+    while (true){
+        analogWrite(R_PIN, ADC_MAX_VAL);
+        delay(500);
+        analogWrite(R_PIN, 0);
+        delay(500);
+    }
 }
 
 void ledService()
@@ -599,6 +706,9 @@ bool printStorageVars(StorageVars_t *storage_vars)
     Serial.println("    y_size: " + String(storage_vars->screen_size.y_size));
 }
 
+// Legacy Serial packet parsing.
+// Packet structure: <A xx yy zz>
+// Where A is the command xx yy zz are the arguments
 // Credit to Robin2 for recvWithStartEndMarkers and showNewData functions
 // https://forum.arduino.cc/t/serial-input-basics-updated/382007
 void recvWithStartEndMarkers()
@@ -611,10 +721,11 @@ void recvWithStartEndMarkers()
 
     while (Serial.available() > 0 && newData == false)
     {
-        rc = Serial.read();
+        rc = Serial.peek();
 
         if (recvInProgress == true)
-        {
+        {   
+            Serial.read();
             if (rc != endMarker)
             {
                 receivedChars[ndx] = rc;
@@ -630,16 +741,23 @@ void recvWithStartEndMarkers()
                 recvInProgress = false;
                 ndx = 0;
                 newData = true;
+                showNewData();
             }
         }
-
         else if (rc == startMarker)
-        {
+        {   
+            Serial.read();
             recvInProgress = true;
+        }
+        else{
+            break;
         }
     }
 }
 
+/***
+ * Callback for when legacy packet is formed
+ */
 void showNewData()
 {
     if (newData == true)
@@ -711,6 +829,8 @@ void showNewData()
 
                 saveFlashStorage(storage_vars);
                 printStorageVars(&storage_vars);
+
+                AbsMouse.init(storage_vars.screen_size.x_max_size, storage_vars.screen_size.y_max_size, false);
             }break;
 
             case 'F': {// Update Filter Params and handedness
